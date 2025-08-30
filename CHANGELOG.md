@@ -19,6 +19,9 @@
 - Fix Netlify Blobs set options, add Node 18 runtime and esbuild bundler
 - Better client error messages for Save/Load
 
+## 0.0.6
+- Convert Netlify functions to ESM imports/exports; bundle @netlify/blobs
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

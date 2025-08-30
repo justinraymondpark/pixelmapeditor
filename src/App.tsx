@@ -357,13 +357,17 @@ export default function App() {
     if (!off) return;
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(Math.PI / 4);
     ctx.imageSmoothingEnabled = false;
     const S = off.width;
-    const sx = tileW / (S * Math.SQRT2);
-    const sy = tileH / (S * Math.SQRT2);
-    ctx.scale(sx, sy);
-    ctx.drawImage(off, -S/2, -S/2, S, S);
+    // Affine map from square [0,S]x[0,S] to isometric diamond of size tileW x tileH centered at (0,0)
+    const a =  (tileW / (2 * S));  // x contribution from source x
+    const b =  (tileH / (2 * S));  // y contribution from source x
+    const c = -(tileW / (2 * S));  // x contribution from source y
+    const d =  (tileH / (2 * S));  // y contribution from source y
+    const e = - (a + c) * (S / 2); // center origin horizontally (will be 0)
+    const f = - (b + d) * (S / 2); // center origin vertically (-tileH/2)
+    ctx.transform(a, b, c, d, e, f);
+    ctx.drawImage(off, 0, 0, S, S);
     ctx.restore();
   }
 

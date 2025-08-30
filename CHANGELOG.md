@@ -36,6 +36,10 @@
 - UI toggle for future auto-tiling workflow (logic skeleton in place)
   - Add toolbar toggle to show/hide tiles sidebar
 
+## 0.1.1
+- Add variable tile sizes selector (8–64) for editor
+- Add Generate Demo tiles button to quickly populate an auto-tiling set
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

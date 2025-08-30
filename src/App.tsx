@@ -55,8 +55,8 @@ export default function App() {
   const editorCanvasRef = useRef<HTMLCanvasElement>(null);
   const editorDrawingRef = useRef(false);
   const editorToolRef = useRef<'brush' | 'eraser'>('brush');
-  const editorTileSize = 32;
-  const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(editorTileSize * editorTileSize).fill(null));
+  const [editorTileSize, setEditorTileSize] = useState<number>(32);
+  const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(32 * 32).fill(null));
   const [editorWorkingIndex, setEditorWorkingIndex] = useState<number | null>(null);
   const [editorAutoGroupName, setEditorAutoGroupName] = useState<string>('');
   const [editorMask, setEditorMask] = useState<number>(0);
@@ -232,6 +232,48 @@ export default function App() {
       }
     }
     ctx.putImageData(imageData, 0, 0);
+  }
+
+  function rgbToHex(r: number, g: number, b: number): string {
+    const toHex = (n: number) => n.toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  function generateDemoTiles(size: number) {
+    const base = tileSets[tileSet][0] || '#6abe30';
+    const { r: br, g: bg, b: bb } = hexToRgb(base);
+    const line = '#000000';
+    const { r: lr, g: lg, b: lb } = hexToRgb(line);
+    const border = Math.max(1, Math.floor(size / 16));
+    const makeTile = (mask: number): TileBitmap => {
+      const pixels = new Array<string | null>(size * size).fill(rgbToHex(br, bg, bb));
+      // draw edges per mask
+      const drawH = (yStart: number) => {
+        for (let y = yStart; y < yStart + border; y++) {
+          if (y < 0 || y >= size) continue;
+          for (let x = 0; x < size; x++) pixels[y * size + x] = rgbToHex(lr, lg, lb);
+        }
+      };
+      const drawV = (xStart: number) => {
+        for (let x = xStart; x < xStart + border; x++) {
+          if (x < 0 || x >= size) continue;
+          for (let y = 0; y < size; y++) pixels[y * size + x] = rgbToHex(lr, lg, lb);
+        }
+      };
+      // N=1, E=2, S=4, W=8
+      if (mask & 1) drawH(0);
+      if (mask & 2) drawV(size - border);
+      if (mask & 4) drawH(size - border);
+      if (mask & 8) drawV(0);
+      return { id: `${tileSet}-demo-${size}-${mask}-${Date.now()}`, size, pixels, autoGroup: 'ground', autoMask: mask };
+    };
+    const newTiles: TileBitmap[] = [];
+    for (let m = 0; m < 16; m++) newTiles.push(makeTile(m));
+    setTilesBySet(prev => {
+      const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
+      copy[tileSet] = [...copy[tileSet], ...newTiles];
+      return copy;
+    });
   }
 
   // --- Auto-tiling helpers ---
@@ -420,6 +462,7 @@ export default function App() {
     if (mode === 'edit' && selectedTileIndex !== null) {
       const tile = tilesBySet[tileSet][selectedTileIndex];
       if (tile) {
+        setEditorTileSize(tile.size);
         setEditorPixels([...tile.pixels]);
         setEditorWorkingIndex(selectedTileIndex);
         setEditorAutoGroupName(tile.autoGroup || '');
@@ -660,6 +703,10 @@ export default function App() {
           ))}
         </select>
         <button onClick={() => setTilesSidebarOpen(o => !o)}>{tilesSidebarOpen ? 'Hide Tiles' : 'Show Tiles'}</button>
+        <select value={editorTileSize} onChange={e => { const s = parseInt(e.target.value, 10); setEditorTileSize(s); setEditorPixels(Array(s * s).fill(null)); }}>
+          {[8,16,24,32,48,64].map(s => <option key={s} value={s}>{s}x{s}</option>)}
+        </select>
+        <button onClick={() => generateDemoTiles(editorTileSize)}>Generate Demo</button>
         <button onClick={() => openEditor('add')}>Add Tile</button>
         <button onClick={() => openEditor('edit')} disabled={selectedTileIndex === null}>Edit Tile</button>
         <div className="palette">

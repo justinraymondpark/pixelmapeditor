@@ -30,6 +30,12 @@ export default function App() {
   const [availableProjectIds, setAvailableProjectIds] = useState<string[]>([]);
   const [selectedLoadId, setSelectedLoadId] = useState<string>('');
 
+  // Auto-tiling and tiles sidebar
+  const [autoTiling, setAutoTiling] = useState(false);
+  const [autoGroup, setAutoGroup] = useState<string>('');
+  const [tilesSidebarOpen, setTilesSidebarOpen] = useState(true);
+  const [tilesSidebarGroupFilter, setTilesSidebarGroupFilter] = useState<string>('');
+
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number };
   const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
@@ -587,6 +593,13 @@ export default function App() {
             <option key={ts} value={ts}>{ts}</option>
           ))}
         </select>
+        <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
+        <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
+          {([''] as string[]).concat(Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any)).map((g, idx) => (
+            <option key={idx} value={g as string}>{g ? g : 'No group'}</option>
+          ))}
+        </select>
+        <button onClick={() => setTilesSidebarOpen(o => !o)}>{tilesSidebarOpen ? 'Hide Tiles' : 'Show Tiles'}</button>
         <button onClick={() => openEditor('add')}>Add Tile</button>
         <button onClick={() => openEditor('edit')} disabled={selectedTileIndex === null}>Edit Tile</button>
         <div className="palette">
@@ -696,6 +709,36 @@ export default function App() {
                 />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {tilesSidebarOpen && (
+        <div className="tiles-sidebar">
+          <div className="tiles-sidebar-header">
+            <div>Tiles: {tileSet}</div>
+            <select value={tilesSidebarGroupFilter} onChange={e => setTilesSidebarGroupFilter(e.target.value)}>
+              <option value="">All groups</option>
+              {Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any).map((g: string) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+          <div className="tiles-grid">
+            {tilesBySet[tileSet].map((t, idx) => {
+              if (tilesSidebarGroupFilter && t.autoGroup !== tilesSidebarGroupFilter) return null;
+              return (
+                <canvas
+                  key={t.id}
+                  width={t.size}
+                  height={t.size}
+                  style={{ width: 40, height: 40, imageRendering: 'pixelated', border: selectedTileIndex === idx ? '2px solid #e67e22' : '1px solid #bdc3c7' }}
+                  ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
+                  onClick={() => setSelectedTileIndex(idx)}
+                  title={t.autoGroup ? `${t.autoGroup} mask:${t.autoMask ?? '-'}` : 'tile'}
+                />
+              );
+            })}
           </div>
         </div>
       )}

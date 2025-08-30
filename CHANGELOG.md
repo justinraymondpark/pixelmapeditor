@@ -34,6 +34,7 @@
 - Add auto-tiling metadata (group + 4-dir mask) to tiles
 - Editor supports setting group/mask; stored in localStorage/export
 - UI toggle for future auto-tiling workflow (logic skeleton in place)
+  - Add toolbar toggle to show/hide tiles sidebar
 
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export

@@ -22,6 +22,9 @@
 ## 0.0.6
 - Convert Netlify functions to ESM imports/exports; bundle @netlify/blobs
 
+## 0.0.7
+- Initialize Netlify Blobs in functions via connectLambda(event) to fix MissingBlobsEnvironmentError
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

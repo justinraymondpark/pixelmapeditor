@@ -1,6 +1,8 @@
-import { getStore } from '@netlify/blobs';
+import { connectLambda, getStore } from '@netlify/blobs';
 
 export const handler = async (event) => {
+  // Initialize Blobs environment for classic Netlify Functions
+  try { connectLambda(event); } catch {}
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }

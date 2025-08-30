@@ -44,6 +44,9 @@ export default function App() {
   const [importSpacing, setImportSpacing] = useState<number>(0);
   const [importGroup, setImportGroup] = useState<string>('');
   const importFileRef = useRef<File | null>(null);
+  // Auto-tiling setup modal
+  const [autoConfigOpen, setAutoConfigOpen] = useState(false);
+  const [autoConfigGroup, setAutoConfigGroup] = useState('ground');
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number };
@@ -813,6 +816,7 @@ export default function App() {
         <button onClick={() => generateDemoTiles(editorTileSize)}>Generate Demo</button>
         <button onClick={() => openEditor('add')}>Add Tile</button>
         <button onClick={() => openEditor('edit')} disabled={selectedTileIndex === null}>Edit Tile</button>
+        <button onClick={() => setAutoConfigOpen(true)}>Auto-tiling Setup</button>
         <button onClick={openImportModal}>Import Tileset</button>
         <div className="palette">
           {(paletteBySet[tileSet] || builtinPalettes.grassland).map((color, idx) => (
@@ -991,6 +995,51 @@ export default function App() {
               <div style={{ flex: 1 }} />
               <button onClick={closeImportModal}>Cancel</button>
               <button onClick={doImportTileset}>Slice & Import</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {autoConfigOpen && (
+        <div className="modal-backdrop" onClick={() => setAutoConfigOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">Auto-tiling Setup – {tileSet}</div>
+            <div className="modal-tools" style={{ gap: '0.75rem', flexWrap: 'wrap' as const }}>
+              <label>Group
+                <input type="text" value={autoConfigGroup} onChange={e => setAutoConfigGroup(e.target.value)} />
+              </label>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setAutoConfigOpen(false)}>Close</button>
+            </div>
+            <div className="modal-canvas" style={{ display: 'block' }}>
+              <div style={{ padding: '1rem' }}>
+                <div style={{ marginBottom: '0.5rem' }}>Assign tiles to masks (N,E,S,W):</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                  {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].map(mask => (
+                    <div key={mask} style={{ background: '#fff', border: '1px solid #bdc3c7', padding: '6px' }}>
+                      <div style={{ fontSize: 12, marginBottom: 4 }}>mask {mask.toString(2).padStart(4,'0')}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 28px)', gap: '4px', justifyContent: 'start' }}>
+                        {tilesBySet[tileSet]?.map((t, idx) => (
+                          <canvas
+                            key={t.id}
+                            width={t.size}
+                            height={t.size}
+                            style={{ width: 28, height: 28, imageRendering: 'pixelated', border: (t.autoGroup === autoConfigGroup && t.autoMask === mask) ? '2px solid #e67e22' : '1px solid #bdc3c7' }}
+                            ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
+                            onClick={() => {
+                              setTilesBySet(prev => {
+                                const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
+                                copy[tileSet] = copy[tileSet].map((tile, i) => i === idx ? { ...tile, autoGroup: autoConfigGroup, autoMask: mask } : tile);
+                                return copy;
+                              });
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -25,6 +25,7 @@ export default function App() {
   const isPanningRef = useRef(false);
   const lastPanPosRef = useRef({ x: 0, y: 0 });
   const hoveredTileRef = useRef<{ i: number; j: number } | null>(null);
+  const [projectId, setProjectId] = useState('');
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[] };
@@ -41,12 +42,22 @@ export default function App() {
   // Pixel editor state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<'add' | 'edit'>('add');
+  const [editorActiveSet, setEditorActiveSet] = useState<TileSetName>('grassland');
   const editorCanvasRef = useRef<HTMLCanvasElement>(null);
   const editorDrawingRef = useRef(false);
   const editorToolRef = useRef<'brush' | 'eraser'>('brush');
   const editorTileSize = 32;
   const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(editorTileSize * editorTileSize).fill(null));
   const [editorWorkingIndex, setEditorWorkingIndex] = useState<number | null>(null);
+  const editorPalette: string[] = [
+    '#000000','#222222','#444444','#666666','#888888','#aaaaaa','#cccccc','#ffffff',
+    '#ff0000','#ff7f7f','#990000','#7f0000','#ff6600','#ffbb99','#cc5200','#663300',
+    '#ffff00','#ffff99','#cccc00','#999900','#00ff00','#99ff99','#009900','#006600',
+    '#00ffff','#99ffff','#00cccc','#009999','#0000ff','#9999ff','#000099','#000066',
+    '#ff00ff','#ff99ff','#cc00cc','#990099','#ff1493','#ffa07a','#ffd700','#8a2be2',
+    '#00fa9a','#7fffd4','#20b2aa','#ff8c00','#b8860b','#cd5c5c','#2e8b57','#708090'
+  ];
+  const [editorColor, setEditorColor] = useState<string>('#000000');
 
   // Local storage hydration for tiles
   useEffect(() => {
@@ -60,6 +71,7 @@ export default function App() {
           rebuilt[setName] = arr.map((t, idx) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels }));
         });
         setTilesBySet(rebuilt);
+        setEditorActiveSet('grassland');
       }
     } catch (e) {
       // ignore
@@ -376,7 +388,7 @@ export default function App() {
     const scaleY = canv.clientHeight / canv.height;
     const px = Math.floor((e.clientX - rect.left) / scaleX);
     const py = Math.floor((e.clientY - rect.top) / scaleY);
-    const color = editorToolRef.current === 'brush' ? tileSets[tileSet][colorIndex % tileSets[tileSet].length] : null;
+    const color = editorToolRef.current === 'brush' ? editorColor : null;
     editorSetPixelAt(px, py, color);
   }
 
@@ -388,7 +400,7 @@ export default function App() {
     const scaleY = canv.clientHeight / canv.height;
     const px = Math.floor((e.clientX - rect.left) / scaleX);
     const py = Math.floor((e.clientY - rect.top) / scaleY);
-    const color = editorToolRef.current === 'brush' ? tileSets[tileSet][colorIndex % tileSets[tileSet].length] : null;
+    const color = editorToolRef.current === 'brush' ? editorColor : null;
     editorSetPixelAt(px, py, color);
   }
 
@@ -398,29 +410,30 @@ export default function App() {
 
   function saveEditor() {
     if (editorMode === 'add') {
-      const newTile: TileBitmap = { id: `${tileSet}-${Date.now()}`, size: editorTileSize, pixels: [...editorPixels] };
+      const targetSet = editorActiveSet;
+      const newTile: TileBitmap = { id: `${targetSet}-${Date.now()}`, size: editorTileSize, pixels: [...editorPixels] };
       setTilesBySet(prev => {
         const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
-        copy[tileSet] = [...copy[tileSet], newTile];
+        copy[targetSet] = [...copy[targetSet], newTile];
         return copy;
       });
-      setSelectedTileIndex(tilesBySet[tileSet].length);
+      if (targetSet === tileSet) setSelectedTileIndex(tilesBySet[targetSet].length);
     } else if (editorMode === 'edit' && selectedTileIndex !== null) {
       const idx = selectedTileIndex;
       setTilesBySet(prev => {
         const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
-        const arr = [...copy[tileSet]];
+        const arr = [...copy[editorActiveSet]];
         const existing = arr[idx];
         arr[idx] = { ...existing, pixels: [...editorPixels] };
-        copy[tileSet] = arr;
+        copy[editorActiveSet] = arr;
         return copy;
       });
-      invalidateTileCache(tileSet, idx);
+      invalidateTileCache(editorActiveSet, idx);
     }
     setEditorOpen(false);
   }
 
-  function exportJSON() {
+  function getExportPayload() {
     const obj: Record<string, any> = {};
     board.forEach((val, key) => {
       if (val.tileSet !== undefined && val.tileIndex !== undefined) {
@@ -433,12 +446,75 @@ export default function App() {
     (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
       tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels }));
     });
-    const payload = { board: obj, tiles: tilesExport };
+    return { board: obj, tiles: tilesExport };
+  }
+
+  function importPayload(payload: any) {
+    try {
+      const tilesIn = payload.tiles || {};
+      const rebuilt = emptyTilesBySet();
+      (Object.keys(rebuilt) as TileSetName[]).forEach(setName => {
+        const arr = tilesIn[setName] || [];
+        rebuilt[setName] = arr.map((t: any, idx: number) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels }));
+      });
+      setTilesBySet(rebuilt);
+      const map = new Map<string, BoardCell>();
+      const boardIn = payload.board || payload; // backward compat
+      Object.keys(boardIn).forEach(key => {
+        const cell = boardIn[key];
+        if (!cell) return;
+        if (cell.type === 'tile' && (['grassland','desert','swamp','cyberpunk'] as string[]).includes(cell.tileSet)) {
+          map.set(key, { tileSet: cell.tileSet, tileIndex: cell.tileIndex });
+        } else if (cell.type === 'color' && cell.color) {
+          map.set(key, { color: cell.color });
+        } else if (typeof cell === 'string') { // very old format
+          map.set(key, { color: cell });
+        }
+      });
+      setBoard(map);
+      offscreenCacheRef.current.clear();
+    } catch {}
+  }
+
+  function exportJSON() {
+    const payload = getExportPayload();
     const data = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload));
     const link = document.createElement('a');
     link.href = data;
     link.download = 'board.json';
     link.click();
+  }
+
+  async function saveToCloud() {
+    const id = projectId.trim();
+    if (!id) return alert('Enter a Project ID');
+    const payload = getExportPayload();
+    try {
+      const res = await fetch('/.netlify/functions/save-project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, payload })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert('Saved to cloud.');
+    } catch (err) {
+      alert('Save failed.');
+    }
+  }
+
+  async function loadFromCloud() {
+    const id = projectId.trim();
+    if (!id) return alert('Enter a Project ID');
+    try {
+      const res = await fetch('/.netlify/functions/load-project?id=' + encodeURIComponent(id));
+      if (res.status === 404) { alert('Not found'); return; }
+      if (!res.ok) throw new Error(await res.text());
+      const payload = await res.json();
+      importPayload(payload);
+      alert('Loaded from cloud.');
+    } catch (err) {
+      alert('Load failed.');
+    }
   }
 
   function exportPNG() {
@@ -504,6 +580,11 @@ export default function App() {
             />
           ))}
         </div>
+        <div className="cloud">
+          <input type="text" placeholder="Project ID" value={projectId} onChange={e => setProjectId(e.target.value)} />
+          <button onClick={saveToCloud}>Save Cloud</button>
+          <button onClick={loadFromCloud}>Load Cloud</button>
+        </div>
         <button onClick={() => setGrid(g => !g)}>{grid ? 'Hide Grid' : 'Show Grid'}</button>
         <button onClick={() => setBoard(new Map())}>Clear</button>
         <button onClick={exportJSON}>Export JSON</button>
@@ -522,36 +603,51 @@ export default function App() {
       {editorOpen && (
         <div className="modal-backdrop" onClick={closeEditor}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">Tile Editor ({editorTileSize}×{editorTileSize}) – {tileSet}</div>
+            <div className="modal-header">Tile Editor ({editorTileSize}×{editorTileSize})</div>
             <div className="modal-tools">
               <button className={editorToolRef.current === 'brush' ? 'active' : ''} onClick={() => { editorToolRef.current = 'brush'; }}>Brush</button>
               <button className={editorToolRef.current === 'eraser' ? 'active' : ''} onClick={() => { editorToolRef.current = 'eraser'; }}>Eraser</button>
               <button onClick={() => setEditorPixels(Array(editorTileSize * editorTileSize).fill(null))}>Clear</button>
-              <div className="palette">
-                {tileSets[tileSet].map((color, idx) => (
-                  <div
-                    key={idx}
-                    style={{ background: color }}
-                    className={colorIndex === idx ? 'active' : ''}
-                    onClick={() => setColorIndex(idx)}
-                  />
+              <div className="editor-palette">
+                {editorPalette.map((c, idx) => (
+                  <div key={idx} style={{ background: c }} className={editorColor === c ? 'active' : ''} onClick={() => setEditorColor(c)} />
                 ))}
+                <input type="color" value={editorColor} onChange={e => setEditorColor(e.target.value)} />
               </div>
               <div style={{ flex: 1 }} />
               <button onClick={closeEditor}>Cancel</button>
               <button onClick={saveEditor}>Save</button>
             </div>
-            <div className="modal-canvas">
-              <canvas
-                ref={editorCanvasRef}
-                width={editorTileSize}
-                height={editorTileSize}
-                style={{ width: 512, height: 512, imageRendering: 'pixelated', background: '#fff' }}
-                onMouseDown={handleEditorMouseDown}
-                onMouseMove={handleEditorMouseMove}
-                onMouseUp={handleEditorMouseUp}
-                onMouseLeave={handleEditorMouseUp}
-              />
+            <div className="modal-body">
+              <div className="sets-panel">
+                {(Object.keys(tileSets) as TileSetName[]).map(setName => (
+                  <button key={setName} className={editorActiveSet === setName ? 'active' : ''} onClick={() => setEditorActiveSet(setName)}>{setName}</button>
+                ))}
+                <div className="sets-tiles">
+                  {tilesBySet[editorActiveSet].map((t, idx) => (
+                    <canvas
+                      key={t.id}
+                      width={editorTileSize}
+                      height={editorTileSize}
+                      style={{ width: 32, height: 32, imageRendering: 'pixelated', border: editorWorkingIndex === idx ? '2px solid #34495e' : '1px solid #bdc3c7' }}
+                      ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
+                      onClick={() => { setEditorMode('edit'); setEditorWorkingIndex(idx); setEditorPixels([...tilesBySet[editorActiveSet][idx].pixels]); }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="modal-canvas">
+                <canvas
+                  ref={editorCanvasRef}
+                  width={editorTileSize}
+                  height={editorTileSize}
+                  style={{ width: 512, height: 512, imageRendering: 'pixelated', background: '#fff' }}
+                  onMouseDown={handleEditorMouseDown}
+                  onMouseMove={handleEditorMouseMove}
+                  onMouseUp={handleEditorMouseUp}
+                  onMouseLeave={handleEditorMouseUp}
+                />
+              </div>
             </div>
           </div>
         </div>

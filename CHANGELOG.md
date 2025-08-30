@@ -10,6 +10,11 @@
 - Persist custom tiles per tileset in localStorage
 - Export JSON now includes board cell refs to tiles and embedded tilesets
 
+## 0.0.4
+- Tile Editor: multi-tileset panel inside modal (switch sets, edit/add)
+- Rich editor palette + color picker
+- Cloud Save/Load via Netlify Functions + Blobs (by Project ID)
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

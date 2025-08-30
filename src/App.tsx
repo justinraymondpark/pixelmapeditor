@@ -47,6 +47,8 @@ export default function App() {
   // Auto-tiling setup modal
   const [autoConfigOpen, setAutoConfigOpen] = useState(false);
   const [autoConfigGroup, setAutoConfigGroup] = useState('ground');
+  // Rules: set -> group -> mask -> [tileIndex]
+  const [autoRulesBySet, setAutoRulesBySet] = useState<Record<string, Record<string, Record<number, number[]>>>>({});
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number };
@@ -109,6 +111,11 @@ export default function App() {
         if (Array.isArray(parsed.sets)) setSets(parsed.sets);
         if (parsed.palettes && typeof parsed.palettes === 'object') setPaletteBySet(parsed.palettes);
       }
+      const rawRules = localStorage.getItem('pixelmapeditor.autorules');
+      if (rawRules) {
+        const parsed = JSON.parse(rawRules);
+        if (parsed && typeof parsed === 'object') setAutoRulesBySet(parsed);
+      }
     } catch (e) {
       // ignore
     }
@@ -125,6 +132,10 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('pixelmapeditor.sets', JSON.stringify({ sets, palettes: paletteBySet })); } catch {}
   }, [sets, paletteBySet]);
+
+  useEffect(() => {
+    try { localStorage.setItem('pixelmapeditor.autorules', JSON.stringify(autoRulesBySet)); } catch {}
+  }, [autoRulesBySet]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -337,8 +348,14 @@ export default function App() {
   }
 
   function applyAutotileAt(next: Map<string, BoardCell>, i: number, j: number, setName: TileSetName, groupName: string) {
-    const groupMap = getGroupMapForSet(setName, groupName);
     const mask = computeMaskFor(next, i, j, groupName, setName);
+    const options = autoRulesBySet[setName]?.[groupName]?.[mask];
+    if (options && options.length > 0) {
+      const pick = options[Math.floor(Math.random() * options.length)];
+      next.set(`${i},${j}`, { tileSet: setName, tileIndex: pick });
+      return;
+    }
+    const groupMap = getGroupMapForSet(setName, groupName);
     let tIdx = groupMap.get(mask);
     if (tIdx === undefined) tIdx = groupMap.get(0);
     if (tIdx === undefined) return;
@@ -349,9 +366,16 @@ export default function App() {
     const cell = getBoardCell(next, i, j);
     if (!cell || cell.tileSet === undefined || cell.tileIndex === undefined) return;
     const meta = getTileMeta(cell.tileSet, cell.tileIndex);
-    if (!meta || !meta.autoGroup) return;
-    const groupMap = getGroupMapForSet(cell.tileSet, meta.autoGroup);
-    const mask = computeMaskFor(next, i, j, meta.autoGroup, cell.tileSet);
+    const groupName = meta?.autoGroup || autoGroup;
+    if (!groupName) return;
+    const mask = computeMaskFor(next, i, j, groupName, cell.tileSet);
+    const options = autoRulesBySet[cell.tileSet]?.[groupName]?.[mask];
+    if (options && options.length > 0) {
+      const pick = options[Math.floor(Math.random() * options.length)];
+      next.set(`${i},${j}`, { tileSet: cell.tileSet, tileIndex: pick });
+      return;
+    }
+    const groupMap = getGroupMapForSet(cell.tileSet, groupName);
     let tIdx = groupMap.get(mask);
     if (tIdx === undefined) tIdx = groupMap.get(0);
     if (tIdx === undefined) return;
@@ -1013,7 +1037,7 @@ export default function App() {
             </div>
             <div className="modal-canvas" style={{ display: 'block' }}>
               <div style={{ padding: '1rem' }}>
-                <div style={{ marginBottom: '0.5rem' }}>Assign tiles to masks (N,E,S,W):</div>
+                <div style={{ marginBottom: '0.5rem' }}>Assign tiles to masks (N,E,S,W). Click a tile to assign. Click again to add more options for randomization. Based on Tiled Automapping concepts [link].</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
                   {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].map(mask => (
                     <div key={mask} style={{ background: '#fff', border: '1px solid #bdc3c7', padding: '6px' }}>
@@ -1024,13 +1048,17 @@ export default function App() {
                             key={t.id}
                             width={t.size}
                             height={t.size}
-                            style={{ width: 28, height: 28, imageRendering: 'pixelated', border: (t.autoGroup === autoConfigGroup && t.autoMask === mask) ? '2px solid #e67e22' : '1px solid #bdc3c7' }}
+                            style={{ width: 28, height: 28, imageRendering: 'pixelated', border: ((autoRulesBySet[tileSet]?.[autoConfigGroup]?.[mask]||[]).includes(idx)) ? '2px solid #e67e22' : '1px solid #bdc3c7' }}
                             ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
                             onClick={() => {
-                              setTilesBySet(prev => {
-                                const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
-                                copy[tileSet] = copy[tileSet].map((tile, i) => i === idx ? { ...tile, autoGroup: autoConfigGroup, autoMask: mask } : tile);
-                                return copy;
+                              setAutoRulesBySet(prev => {
+                                const next = { ...prev } as Record<string, Record<string, Record<number, number[]>>>;
+                                if (!next[tileSet]) next[tileSet] = {};
+                                if (!next[tileSet][autoConfigGroup]) next[tileSet][autoConfigGroup] = {} as Record<number, number[]>;
+                                const arr = next[tileSet][autoConfigGroup][mask] ? [...next[tileSet][autoConfigGroup][mask]] : [];
+                                if (!arr.includes(idx)) arr.push(idx); else arr.splice(arr.indexOf(idx),1);
+                                next[tileSet][autoConfigGroup][mask] = arr;
+                                return next;
                               });
                             }}
                           />

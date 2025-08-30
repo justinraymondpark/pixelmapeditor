@@ -3,19 +3,20 @@ import React, { useEffect, useRef, useState } from 'react';
 const tileW = 64;
 const tileH = 32;
 
-const tileSets = {
+const builtinPalettes = {
   grassland: ['#6abe30','#378b29','#2f7a24','#23671b'],
   desert: ['#e0c08f','#d0a060','#c09048','#b08038'],
   swamp: ['#4f704d','#42633f','#365432','#2a4626'],
   cyberpunk: ['#00ffff','#ff00ff','#ffff00','#00aaff']
 } as const;
 
-type TileSetName = keyof typeof tileSets;
+type TileSetName = string;
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
   const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
+  const [sets, setSets] = useState<string[]>(['grassland','desert','swamp','cyberpunk']);
   const [tileSet, setTileSet] = useState<TileSetName>('grassland');
   const [colorIndex, setColorIndex] = useState(0);
   const [grid, setGrid] = useState(true);
@@ -53,6 +54,12 @@ export default function App() {
     cyberpunk: []
   });
   const [tilesBySet, setTilesBySet] = useState<Record<TileSetName, TileBitmap[]>>(emptyTilesBySet());
+  const [paletteBySet, setPaletteBySet] = useState<Record<string, string[]>>({
+    grassland: [...builtinPalettes.grassland],
+    desert: [...builtinPalettes.desert],
+    swamp: [...builtinPalettes.swamp],
+    cyberpunk: [...builtinPalettes.cyberpunk]
+  });
   const [selectedTileIndex, setSelectedTileIndex] = useState<number | null>(null);
   const offscreenCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
 
@@ -63,8 +70,8 @@ export default function App() {
   const editorCanvasRef = useRef<HTMLCanvasElement>(null);
   const editorDrawingRef = useRef(false);
   const editorToolRef = useRef<'brush' | 'eraser'>('brush');
-  const [editorTileSize, setEditorTileSize] = useState<number>(32);
-  const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(32 * 32).fill(null));
+  const [editorTileSize, setEditorTileSize] = useState<number>(16);
+  const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(16 * 16).fill(null));
   const [editorWorkingIndex, setEditorWorkingIndex] = useState<number | null>(null);
   const [editorAutoGroupName, setEditorAutoGroupName] = useState<string>('');
   const [editorMask, setEditorMask] = useState<number>(0);
@@ -93,6 +100,12 @@ export default function App() {
         setTilesBySet(rebuilt);
         setEditorActiveSet('grassland');
       }
+      const rawSets = localStorage.getItem('pixelmapeditor.sets');
+      if (rawSets) {
+        const parsed = JSON.parse(rawSets);
+        if (Array.isArray(parsed.sets)) setSets(parsed.sets);
+        if (parsed.palettes && typeof parsed.palettes === 'object') setPaletteBySet(parsed.palettes);
+      }
     } catch (e) {
       // ignore
     }
@@ -105,6 +118,10 @@ export default function App() {
     });
     try { localStorage.setItem('pixelmapeditor.tiles', JSON.stringify(toStore)); } catch {}
   }, [tilesBySet]);
+
+  useEffect(() => {
+    try { localStorage.setItem('pixelmapeditor.sets', JSON.stringify({ sets, palettes: paletteBySet })); } catch {}
+  }, [sets, paletteBySet]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -248,7 +265,7 @@ export default function App() {
   }
 
   function generateDemoTiles(size: number) {
-    const base = tileSets[tileSet][0] || '#6abe30';
+    const base = (paletteBySet[tileSet] && paletteBySet[tileSet][0]) || builtinPalettes.grassland[0] || '#6abe30';
     const { r: br, g: bg, b: bb } = hexToRgb(base);
     const line = '#000000';
     const { r: lr, g: lg, b: lb } = hexToRgb(line);
@@ -452,7 +469,8 @@ export default function App() {
       } else if (selectedTileIndex !== null) {
         next.set(key, { tileSet, tileIndex: selectedTileIndex });
       } else {
-        const color = tileSets[tileSet][colorIndex % tileSets[tileSet].length];
+        const pal = paletteBySet[tileSet] || builtinPalettes.grassland;
+        const color = pal[colorIndex % pal.length];
         next.set(key, { color });
       }
       return next;
@@ -769,10 +787,19 @@ export default function App() {
         <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush</button>
         <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser</button>
         <select value={tileSet} onChange={e => { setTileSet(e.target.value as TileSetName); setColorIndex(0); }}>
-          {Object.keys(tileSets).map(ts => (
+          {sets.map(ts => (
             <option key={ts} value={ts}>{ts}</option>
           ))}
         </select>
+        <button onClick={() => {
+          const name = prompt('New tileset name?');
+          if (!name) return;
+          if (sets.includes(name)) { alert('Name exists'); return; }
+          setSets(prev => [...prev, name]);
+          setTilesBySet(prev => ({ ...prev, [name]: [] }));
+          setPaletteBySet(prev => ({ ...prev, [name]: [...(paletteBySet.grassland || builtinPalettes.grassland)] }));
+          setTileSet(name);
+        }}>Add Set</button>
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
         <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
           {([''] as string[]).concat(Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any)).map((g, idx) => (
@@ -788,7 +815,7 @@ export default function App() {
         <button onClick={() => openEditor('edit')} disabled={selectedTileIndex === null}>Edit Tile</button>
         <button onClick={openImportModal}>Import Tileset</button>
         <div className="palette">
-          {tileSets[tileSet].map((color, idx) => (
+          {(paletteBySet[tileSet] || builtinPalettes.grassland).map((color, idx) => (
             <div
               key={idx}
               style={{ background: color }}
@@ -865,7 +892,7 @@ export default function App() {
             </div>
             <div className="modal-body">
               <div className="sets-panel">
-                {(Object.keys(tileSets) as TileSetName[]).map(setName => (
+                {sets.map(setName => (
                   <button key={setName} className={editorActiveSet === setName ? 'active' : ''} onClick={() => setEditorActiveSet(setName)}>{setName}</button>
                 ))}
                 <div className="sets-tiles">

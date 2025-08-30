@@ -133,6 +133,12 @@ canvas {
   background: #bdc3c7;
 }
 
+.modal-tools label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .editor-autotile {
   display: flex;
   align-items: center;

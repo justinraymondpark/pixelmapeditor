@@ -36,6 +36,14 @@ export default function App() {
   const [tilesSidebarOpen, setTilesSidebarOpen] = useState(true);
   const [tilesSidebarGroupFilter, setTilesSidebarGroupFilter] = useState<string>('');
 
+  // Import tileset modal
+  const [importOpen, setImportOpen] = useState(false);
+  const [importTileSize, setImportTileSize] = useState<number>(32);
+  const [importMargin, setImportMargin] = useState<number>(0);
+  const [importSpacing, setImportSpacing] = useState<number>(0);
+  const [importGroup, setImportGroup] = useState<string>('');
+  const importFileRef = useRef<File | null>(null);
+
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number };
   const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
@@ -690,6 +698,71 @@ export default function App() {
     return () => canvas.removeEventListener('contextmenu', handleContextMenu);
   }, []);
 
+  // ---- Tileset import helpers ----
+  function openImportModal() { setImportOpen(true); }
+  function closeImportModal() { setImportOpen(false); importFileRef.current = null; }
+
+  function fileToImage(file: File): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('read error'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('image error'));
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function imageDataToPixels(imageData: ImageData): (string | null)[] {
+    const out = new Array<string | null>(imageData.width * imageData.height);
+    const d = imageData.data;
+    for (let i = 0, p = 0; i < out.length; i++, p += 4) {
+      const a = d[p + 3];
+      if (a === 0) { out[i] = null; } else {
+        out[i] = rgbToHex(d[p], d[p+1], d[p+2]);
+      }
+    }
+    return out;
+  }
+
+  async function doImportTileset() {
+    const file = importFileRef.current;
+    if (!file) { alert('Choose an image'); return; }
+    try {
+      const img = await fileToImage(file);
+      const S = importTileSize;
+      const margin = importMargin;
+      const spacing = importSpacing;
+      const canvas = document.createElement('canvas');
+      canvas.width = S; canvas.height = S;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const newTiles: TileBitmap[] = [];
+      for (let sy = margin; sy + S <= img.height - margin + 0.0001; sy += S + spacing) {
+        for (let sx = margin; sx + S <= img.width - margin + 0.0001; sx += S + spacing) {
+          ctx.clearRect(0,0,S,S);
+          ctx.drawImage(img, sx, sy, S, S, 0, 0, S, S);
+          const idata = ctx.getImageData(0,0,S,S);
+          const pixels = imageDataToPixels(idata);
+          newTiles.push({ id: `${tileSet}-import-${Date.now()}-${sx}-${sy}`, size: S, pixels, autoGroup: importGroup || undefined });
+        }
+      }
+      if (newTiles.length === 0) { alert('No tiles sliced. Check size/margin/spacing.'); return; }
+      setTilesBySet(prev => {
+        const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
+        copy[tileSet] = [...copy[tileSet], ...newTiles];
+        return copy;
+      });
+      closeImportModal();
+    } catch (e) {
+      console.error(e);
+      alert('Import failed.');
+    }
+  }
+
   return (
     <div>
       <div className="toolbar">
@@ -713,6 +786,7 @@ export default function App() {
         <button onClick={() => generateDemoTiles(editorTileSize)}>Generate Demo</button>
         <button onClick={() => openEditor('add')}>Add Tile</button>
         <button onClick={() => openEditor('edit')} disabled={selectedTileIndex === null}>Edit Tile</button>
+        <button onClick={openImportModal}>Import Tileset</button>
         <div className="palette">
           {tileSets[tileSet].map((color, idx) => (
             <div
@@ -868,6 +942,28 @@ export default function App() {
               <div style={{ flex: 1 }} />
               <button onClick={() => setLoadModalOpen(false)}>Cancel</button>
               <button onClick={confirmLoadSelected} disabled={!selectedLoadId}>Load</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="modal-backdrop" onClick={closeImportModal}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">Import Tileset</div>
+            <div className="modal-tools" style={{ gap: '0.75rem', flexWrap: 'wrap' as const }}>
+              <input type="file" accept="image/*" onChange={e => { importFileRef.current = e.target.files && e.target.files[0] ? e.target.files[0] : null; }} />
+              <label>Size
+                <select value={importTileSize} onChange={e => setImportTileSize(parseInt(e.target.value,10))}>
+                  {[8,16,24,32,48,64].map(s => <option key={s} value={s}>{s}x{s}</option>)}
+                </select>
+              </label>
+              <label>Margin <input type="number" min={0} value={importMargin} onChange={e => setImportMargin(parseInt(e.target.value,10)||0)} /></label>
+              <label>Spacing <input type="number" min={0} value={importSpacing} onChange={e => setImportSpacing(parseInt(e.target.value,10)||0)} /></label>
+              <label>Group <input type="text" placeholder="optional auto group" value={importGroup} onChange={e => setImportGroup(e.target.value)} /></label>
+              <div style={{ flex: 1 }} />
+              <button onClick={closeImportModal}>Cancel</button>
+              <button onClick={doImportTileset}>Slice & Import</button>
             </div>
           </div>
         </div>

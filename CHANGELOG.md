@@ -40,6 +40,10 @@
 - Add variable tile sizes selector (8–64) for editor
 - Add Generate Demo tiles button to quickly populate an auto-tiling set
 
+## 0.1.2
+- Add tileset import modal (file input, size, margin, spacing, group)
+- Implement spritesheet slicing to populate current tileset
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

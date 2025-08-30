@@ -60,6 +60,7 @@ export default function App() {
   const [editorWorkingIndex, setEditorWorkingIndex] = useState<number | null>(null);
   const [editorAutoGroupName, setEditorAutoGroupName] = useState<string>('');
   const [editorMask, setEditorMask] = useState<number>(0);
+
   const editorPalette: string[] = [
     '#000000','#222222','#444444','#666666','#888888','#aaaaaa','#cccccc','#ffffff',
     '#ff0000','#ff7f7f','#990000','#7f0000','#ff6600','#ffbb99','#cc5200','#663300',
@@ -233,6 +234,60 @@ export default function App() {
     ctx.putImageData(imageData, 0, 0);
   }
 
+  // --- Auto-tiling helpers ---
+  function getGroupMapForSet(tileSetName: TileSetName, groupName: string): Map<number, number> {
+    const m = new Map<number, number>();
+    tilesBySet[tileSetName].forEach((t, idx) => {
+      if (t.autoGroup === groupName && typeof t.autoMask === 'number') m.set(t.autoMask, idx);
+    });
+    return m;
+  }
+
+  function getTileMeta(tileSetName: TileSetName, tileIndex?: number) {
+    if (tileIndex === undefined || tileIndex === null) return null;
+    return tilesBySet[tileSetName][tileIndex] || null;
+  }
+
+  function getBoardCell(map: Map<string, BoardCell>, i: number, j: number): BoardCell | undefined {
+    return map.get(`${i},${j}`);
+  }
+
+  function isGroupCell(cell: BoardCell | undefined, groupName: string, setName: TileSetName): boolean {
+    if (!cell || cell.tileSet !== setName || cell.tileIndex === undefined) return false;
+    const meta = getTileMeta(setName, cell.tileIndex);
+    return !!(meta && meta.autoGroup === groupName);
+  }
+
+  function computeMaskFor(map: Map<string, BoardCell>, i: number, j: number, groupName: string, setName: TileSetName): number {
+    const north = isGroupCell(getBoardCell(map, i - 1, j), groupName, setName) ? 1 : 0;
+    const east = isGroupCell(getBoardCell(map, i, j + 1), groupName, setName) ? 1 : 0;
+    const south = isGroupCell(getBoardCell(map, i + 1, j), groupName, setName) ? 1 : 0;
+    const west = isGroupCell(getBoardCell(map, i, j - 1), groupName, setName) ? 1 : 0;
+    return (north) | (east << 1) | (south << 2) | (west << 3);
+  }
+
+  function applyAutotileAt(next: Map<string, BoardCell>, i: number, j: number, setName: TileSetName, groupName: string) {
+    const groupMap = getGroupMapForSet(setName, groupName);
+    const mask = computeMaskFor(next, i, j, groupName, setName);
+    let tIdx = groupMap.get(mask);
+    if (tIdx === undefined) tIdx = groupMap.get(0);
+    if (tIdx === undefined) return;
+    next.set(`${i},${j}`, { tileSet: setName, tileIndex: tIdx });
+  }
+
+  function updateAutotileForCell(next: Map<string, BoardCell>, i: number, j: number) {
+    const cell = getBoardCell(next, i, j);
+    if (!cell || cell.tileSet === undefined || cell.tileIndex === undefined) return;
+    const meta = getTileMeta(cell.tileSet, cell.tileIndex);
+    if (!meta || !meta.autoGroup) return;
+    const groupMap = getGroupMapForSet(cell.tileSet, meta.autoGroup);
+    const mask = computeMaskFor(next, i, j, meta.autoGroup, cell.tileSet);
+    let tIdx = groupMap.get(mask);
+    if (tIdx === undefined) tIdx = groupMap.get(0);
+    if (tIdx === undefined) return;
+    next.set(`${i},${j}`, { tileSet: cell.tileSet, tileIndex: tIdx });
+  }
+
   function getOffscreenForTile(tileSetName: TileSetName, tileIndex: number): HTMLCanvasElement | null {
     const tile = tilesBySet[tileSetName][tileIndex];
     if (!tile) return null;
@@ -335,7 +390,12 @@ export default function App() {
     const key = `${i},${j}`;
     setBoard(prev => {
       const next = new Map(prev);
-      if (selectedTileIndex !== null) {
+      if (autoTiling && autoGroup) {
+        // place autotile and update neighbors
+        applyAutotileAt(next, i, j, tileSet, autoGroup);
+        const neighbors = [ [i-1,j], [i,j+1], [i+1,j], [i,j-1] ] as Array<[number,number]>;
+        neighbors.forEach(([ni, nj]) => updateAutotileForCell(next, ni, nj));
+      } else if (selectedTileIndex !== null) {
         next.set(key, { tileSet, tileIndex: selectedTileIndex });
       } else {
         const color = tileSets[tileSet][colorIndex % tileSets[tileSet].length];
@@ -457,9 +517,9 @@ export default function App() {
         obj[key] = { type: 'color', color: val.color };
       }
     });
-    const tilesExport: Record<string, { size: number; pixels: (string | null)[] }[]> = {};
+    const tilesExport: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = {};
     (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
-      tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels }));
+      tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
     });
     return { board: obj, tiles: tilesExport };
   }
@@ -470,7 +530,7 @@ export default function App() {
       const rebuilt = emptyTilesBySet();
       (Object.keys(rebuilt) as TileSetName[]).forEach(setName => {
         const arr = tilesIn[setName] || [];
-        rebuilt[setName] = arr.map((t: any, idx: number) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels }));
+        rebuilt[setName] = arr.map((t: any, idx: number) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
       });
       setTilesBySet(rebuilt);
       const map = new Map<string, BoardCell>();
@@ -691,7 +751,7 @@ export default function App() {
                       height={editorTileSize}
                       style={{ width: 32, height: 32, imageRendering: 'pixelated', border: editorWorkingIndex === idx ? '2px solid #34495e' : '1px solid #bdc3c7' }}
                       ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
-                      onClick={() => { setEditorMode('edit'); setEditorWorkingIndex(idx); setEditorPixels([...tilesBySet[editorActiveSet][idx].pixels]); }}
+                      onClick={() => { setEditorMode('edit'); setEditorWorkingIndex(idx); const tt = tilesBySet[editorActiveSet][idx]; setEditorPixels([...tt.pixels]); setEditorAutoGroupName(tt.autoGroup || ''); setEditorMask(tt.autoMask ?? 0); }}
                     />
                   ))}
                 </div>

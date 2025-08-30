@@ -23,6 +23,7 @@ export default function App() {
   const scaleRef = useRef(1);
   const isPanningRef = useRef(false);
   const lastPanPosRef = useRef({ x: 0, y: 0 });
+  const hoveredTileRef = useRef<{ i: number; j: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -76,6 +77,23 @@ export default function App() {
         ctx.stroke();
       });
 
+      // Hover highlight
+      if (hoveredTileRef.current) {
+        const { i, j } = hoveredTileRef.current;
+        const pos = isoToScreen(i, j);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y - tileH/2);
+        ctx.lineTo(pos.x + tileW/2, pos.y);
+        ctx.lineTo(pos.x, pos.y + tileH/2);
+        ctx.lineTo(pos.x - tileW/2, pos.y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 2 / scaleRef.current;
+        ctx.stroke();
+      }
+
       ctx.restore();
       animationId = requestAnimationFrame(draw);
     }
@@ -92,10 +110,15 @@ export default function App() {
 
   function screenToIso(px: number, py: number) {
     const canvas = canvasRef.current!;
-    const x = (px - canvas.clientWidth/2) / scaleRef.current - offsetRef.current.x;
-    const y = (py - canvas.clientHeight/2) / scaleRef.current - offsetRef.current.y;
-    const i = Math.floor((y / (tileH/2) + x / (tileW/2)) / 2);
-    const j = Math.floor((y / (tileH/2) - x / (tileW/2)) / 2);
+    const rect = canvas.getBoundingClientRect();
+    const localX = px - rect.left;
+    const localY = py - rect.top;
+    const x = (localX - canvas.clientWidth/2) / scaleRef.current - offsetRef.current.x;
+    const y = (localY - canvas.clientHeight/2) / scaleRef.current - offsetRef.current.y;
+    const fi = (y / (tileH/2) + x / (tileW/2)) / 2;
+    const fj = (y / (tileH/2) - x / (tileW/2)) / 2;
+    const i = Math.round(fi);
+    const j = Math.round(fj);
     return { i, j };
   }
 
@@ -130,6 +153,9 @@ export default function App() {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       erase(i,j);
     }
+    // Update hover preview for all mouse moves
+    const { i, j } = screenToIso(e.clientX, e.clientY);
+    hoveredTileRef.current = { i, j };
   }
 
   function handleMouseUp(e: React.MouseEvent) {
@@ -151,6 +177,10 @@ export default function App() {
     scaleRef.current = newScale;
     offsetRef.current.x = ( (px - canvas.clientWidth/2) / newScale ) - worldX;
     offsetRef.current.y = ( (py - canvas.clientHeight/2) / newScale ) - worldY;
+  }
+
+  function handleMouseLeave() {
+    hoveredTileRef.current = null;
   }
 
   function paint(i: number, j: number) {
@@ -236,6 +266,7 @@ export default function App() {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
       />
     </div>

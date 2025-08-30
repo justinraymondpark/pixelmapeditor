@@ -14,16 +14,65 @@ type TileSetName = keyof typeof tileSets;
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
   const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
   const [tileSet, setTileSet] = useState<TileSetName>('grassland');
   const [colorIndex, setColorIndex] = useState(0);
   const [grid, setGrid] = useState(true);
-  const [board, setBoard] = useState<Map<string, { color: string }>>(new Map());
+  const [board, setBoard] = useState<Map<string, BoardCell>>(new Map());
   const offsetRef = useRef({ x: 0, y: 0 });
   const scaleRef = useRef(1);
   const isPanningRef = useRef(false);
   const lastPanPosRef = useRef({ x: 0, y: 0 });
   const hoveredTileRef = useRef<{ i: number; j: number } | null>(null);
+
+  // Tile bitmaps per tileset
+  type TileBitmap = { id: string; size: number; pixels: (string | null)[] };
+  const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
+    grassland: [],
+    desert: [],
+    swamp: [],
+    cyberpunk: []
+  });
+  const [tilesBySet, setTilesBySet] = useState<Record<TileSetName, TileBitmap[]>>(emptyTilesBySet());
+  const [selectedTileIndex, setSelectedTileIndex] = useState<number | null>(null);
+  const offscreenCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+
+  // Pixel editor state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorMode, setEditorMode] = useState<'add' | 'edit'>('add');
+  const editorCanvasRef = useRef<HTMLCanvasElement>(null);
+  const editorDrawingRef = useRef(false);
+  const editorToolRef = useRef<'brush' | 'eraser'>('brush');
+  const editorTileSize = 32;
+  const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(editorTileSize * editorTileSize).fill(null));
+  const [editorWorkingIndex, setEditorWorkingIndex] = useState<number | null>(null);
+
+  // Local storage hydration for tiles
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('pixelmapeditor.tiles');
+      if (raw) {
+        const parsed: Record<string, { size: number; pixels: (string | null)[] }[]> = JSON.parse(raw);
+        const rebuilt = emptyTilesBySet();
+        (Object.keys(rebuilt) as TileSetName[]).forEach(setName => {
+          const arr = parsed[setName] || [];
+          rebuilt[setName] = arr.map((t, idx) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels }));
+        });
+        setTilesBySet(rebuilt);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    const toStore: Record<string, { size: number; pixels: (string | null)[] }[]> = {};
+    (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
+      toStore[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels }));
+    });
+    try { localStorage.setItem('pixelmapeditor.tiles', JSON.stringify(toStore)); } catch {}
+  }, [tilesBySet]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -59,22 +108,26 @@ export default function App() {
         }
       }
 
-      board.forEach(({color}, key) => {
+      board.forEach((cell, key) => {
         const [iStr, jStr] = key.split(',');
         const i = parseInt(iStr, 10);
         const j = parseInt(jStr, 10);
         const pos = isoToScreen(i,j);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y - tileH/2);
-        ctx.lineTo(pos.x + tileW/2, pos.y);
-        ctx.lineTo(pos.x, pos.y + tileH/2);
-        ctx.lineTo(pos.x - tileW/2, pos.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-        ctx.lineWidth = 1 / scaleRef.current;
-        ctx.stroke();
+        if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
+          drawTileBitmapAt(ctx, cell.tileSet, cell.tileIndex, pos.x, pos.y);
+        } else if (cell.color) {
+          ctx.fillStyle = cell.color;
+          ctx.beginPath();
+          ctx.moveTo(pos.x, pos.y - tileH/2);
+          ctx.lineTo(pos.x + tileW/2, pos.y);
+          ctx.lineTo(pos.x, pos.y + tileH/2);
+          ctx.lineTo(pos.x - tileW/2, pos.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+          ctx.lineWidth = 1 / scaleRef.current;
+          ctx.stroke();
+        }
       });
 
       // Hover highlight
@@ -120,6 +173,78 @@ export default function App() {
     const i = Math.round(fi);
     const j = Math.round(fj);
     return { i, j };
+  }
+
+  function hexToRgb(hex: string): { r: number; g: number; b: number } {
+    const h = hex.replace('#','');
+    const bigint = parseInt(h.length === 3 ? h.split('').map(c=>c+c).join('') : h, 16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    return { r, g, b };
+  }
+
+  function renderPixelsToCanvas(canvas: HTMLCanvasElement, pixels: (string | null)[], size: number) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const imageData = ctx.createImageData(size, size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const idx = y * size + x;
+        const base = idx * 4;
+        const color = pixels[idx];
+        if (!color) {
+          imageData.data[base + 0] = 0;
+          imageData.data[base + 1] = 0;
+          imageData.data[base + 2] = 0;
+          imageData.data[base + 3] = 0;
+        } else {
+          const { r, g, b } = hexToRgb(color);
+          imageData.data[base + 0] = r;
+          imageData.data[base + 1] = g;
+          imageData.data[base + 2] = b;
+          imageData.data[base + 3] = 255;
+        }
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function getOffscreenForTile(tileSetName: TileSetName, tileIndex: number): HTMLCanvasElement | null {
+    const tile = tilesBySet[tileSetName][tileIndex];
+    if (!tile) return null;
+    const key = `${tileSetName}:${tileIndex}:${tile.size}`;
+    const cache = offscreenCacheRef.current;
+    let canv = cache.get(key);
+    if (!canv) {
+      canv = document.createElement('canvas');
+      canv.width = tile.size;
+      canv.height = tile.size;
+      renderPixelsToCanvas(canv, tile.pixels, tile.size);
+      cache.set(key, canv);
+    }
+    return canv;
+  }
+
+  function invalidateTileCache(tileSetName: TileSetName, tileIndex: number) {
+    const keyPrefix = `${tileSetName}:${tileIndex}:`;
+    const cache = offscreenCacheRef.current;
+    Array.from(cache.keys()).forEach(k => { if (k.startsWith(keyPrefix)) cache.delete(k); });
+  }
+
+  function drawTileBitmapAt(ctx: CanvasRenderingContext2D, tileSetName: TileSetName, tileIndex: number, x: number, y: number) {
+    const off = getOffscreenForTile(tileSetName, tileIndex);
+    if (!off) return;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.imageSmoothingEnabled = false;
+    const S = off.width;
+    const sx = tileW / (S * Math.SQRT2);
+    const sy = tileH / (S * Math.SQRT2);
+    ctx.scale(sx, sy);
+    ctx.drawImage(off, -S/2, -S/2, S, S);
+    ctx.restore();
   }
 
   function handleMouseDown(e: React.MouseEvent) {
@@ -185,10 +310,14 @@ export default function App() {
 
   function paint(i: number, j: number) {
     const key = `${i},${j}`;
-    const color = tileSets[tileSet][colorIndex % tileSets[tileSet].length];
     setBoard(prev => {
       const next = new Map(prev);
-      next.set(key, { color });
+      if (selectedTileIndex !== null) {
+        next.set(key, { tileSet, tileIndex: selectedTileIndex });
+      } else {
+        const color = tileSets[tileSet][colorIndex % tileSets[tileSet].length];
+        next.set(key, { color });
+      }
       return next;
     });
   }
@@ -203,10 +332,109 @@ export default function App() {
     });
   }
 
+  function openEditor(mode: 'add' | 'edit') {
+    setEditorMode(mode);
+    if (mode === 'edit' && selectedTileIndex !== null) {
+      const tile = tilesBySet[tileSet][selectedTileIndex];
+      if (tile) {
+        setEditorPixels([...tile.pixels]);
+        setEditorWorkingIndex(selectedTileIndex);
+      }
+    } else {
+      setEditorPixels(Array(editorTileSize * editorTileSize).fill(null));
+      setEditorWorkingIndex(null);
+    }
+    setEditorOpen(true);
+  }
+
+  function closeEditor() {
+    setEditorOpen(false);
+  }
+
+  function handleEditorCanvasDraw() {
+    const canv = editorCanvasRef.current;
+    if (!canv) return;
+    renderPixelsToCanvas(canv, editorPixels, editorTileSize);
+  }
+
+  useEffect(() => { if (editorOpen) handleEditorCanvasDraw(); }, [editorOpen, editorPixels]);
+
+  function editorSetPixelAt(x: number, y: number, color: string | null) {
+    if (x < 0 || y < 0 || x >= editorTileSize || y >= editorTileSize) return;
+    setEditorPixels(prev => {
+      const next = [...prev];
+      next[y * editorTileSize + x] = color;
+      return next;
+    });
+  }
+
+  function handleEditorMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    editorDrawingRef.current = true;
+    const canv = editorCanvasRef.current!;
+    const rect = canv.getBoundingClientRect();
+    const scaleX = canv.clientWidth / canv.width;
+    const scaleY = canv.clientHeight / canv.height;
+    const px = Math.floor((e.clientX - rect.left) / scaleX);
+    const py = Math.floor((e.clientY - rect.top) / scaleY);
+    const color = editorToolRef.current === 'brush' ? tileSets[tileSet][colorIndex % tileSets[tileSet].length] : null;
+    editorSetPixelAt(px, py, color);
+  }
+
+  function handleEditorMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!editorDrawingRef.current) return;
+    const canv = editorCanvasRef.current!;
+    const rect = canv.getBoundingClientRect();
+    const scaleX = canv.clientWidth / canv.width;
+    const scaleY = canv.clientHeight / canv.height;
+    const px = Math.floor((e.clientX - rect.left) / scaleX);
+    const py = Math.floor((e.clientY - rect.top) / scaleY);
+    const color = editorToolRef.current === 'brush' ? tileSets[tileSet][colorIndex % tileSets[tileSet].length] : null;
+    editorSetPixelAt(px, py, color);
+  }
+
+  function handleEditorMouseUp() {
+    editorDrawingRef.current = false;
+  }
+
+  function saveEditor() {
+    if (editorMode === 'add') {
+      const newTile: TileBitmap = { id: `${tileSet}-${Date.now()}`, size: editorTileSize, pixels: [...editorPixels] };
+      setTilesBySet(prev => {
+        const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
+        copy[tileSet] = [...copy[tileSet], newTile];
+        return copy;
+      });
+      setSelectedTileIndex(tilesBySet[tileSet].length);
+    } else if (editorMode === 'edit' && selectedTileIndex !== null) {
+      const idx = selectedTileIndex;
+      setTilesBySet(prev => {
+        const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
+        const arr = [...copy[tileSet]];
+        const existing = arr[idx];
+        arr[idx] = { ...existing, pixels: [...editorPixels] };
+        copy[tileSet] = arr;
+        return copy;
+      });
+      invalidateTileCache(tileSet, idx);
+    }
+    setEditorOpen(false);
+  }
+
   function exportJSON() {
-    const obj: Record<string, string> = {};
-    board.forEach((val,key) => { obj[key] = val.color; });
-    const data = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(obj));
+    const obj: Record<string, any> = {};
+    board.forEach((val, key) => {
+      if (val.tileSet !== undefined && val.tileIndex !== undefined) {
+        obj[key] = { type: 'tile', tileSet: val.tileSet, tileIndex: val.tileIndex };
+      } else if (val.color) {
+        obj[key] = { type: 'color', color: val.color };
+      }
+    });
+    const tilesExport: Record<string, { size: number; pixels: (string | null)[] }[]> = {};
+    (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
+      tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels }));
+    });
+    const payload = { board: obj, tiles: tilesExport };
+    const data = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload));
     const link = document.createElement('a');
     link.href = data;
     link.download = 'board.json';
@@ -245,6 +473,8 @@ export default function App() {
             <option key={ts} value={ts}>{ts}</option>
           ))}
         </select>
+        <button onClick={() => openEditor('add')}>Add Tile</button>
+        <button onClick={() => openEditor('edit')} disabled={selectedTileIndex === null}>Edit Tile</button>
         <div className="palette">
           {tileSets[tileSet].map((color, idx) => (
             <div
@@ -252,6 +482,25 @@ export default function App() {
               style={{ background: color }}
               className={colorIndex === idx ? 'active' : ''}
               onClick={() => setColorIndex(idx)}
+            />
+          ))}
+        </div>
+        <div className="tilebar">
+          <div
+            className={`tile-thumb ${selectedTileIndex === null ? 'active' : ''}`}
+            title="No tile (use solid color)"
+            onClick={() => setSelectedTileIndex(null)}
+          >
+            ×
+          </div>
+          {tilesBySet[tileSet].map((t, idx) => (
+            <canvas
+              key={t.id}
+              width={editorTileSize}
+              height={editorTileSize}
+              style={{ width: 24, height: 24, imageRendering: 'pixelated', border: selectedTileIndex === idx ? '2px solid #ecf0f1' : '1px solid #bdc3c7' }}
+              ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
+              onClick={() => setSelectedTileIndex(idx)}
             />
           ))}
         </div>
@@ -269,6 +518,44 @@ export default function App() {
         onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
       />
+
+      {editorOpen && (
+        <div className="modal-backdrop" onClick={closeEditor}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">Tile Editor ({editorTileSize}×{editorTileSize}) – {tileSet}</div>
+            <div className="modal-tools">
+              <button className={editorToolRef.current === 'brush' ? 'active' : ''} onClick={() => { editorToolRef.current = 'brush'; }}>Brush</button>
+              <button className={editorToolRef.current === 'eraser' ? 'active' : ''} onClick={() => { editorToolRef.current = 'eraser'; }}>Eraser</button>
+              <button onClick={() => setEditorPixels(Array(editorTileSize * editorTileSize).fill(null))}>Clear</button>
+              <div className="palette">
+                {tileSets[tileSet].map((color, idx) => (
+                  <div
+                    key={idx}
+                    style={{ background: color }}
+                    className={colorIndex === idx ? 'active' : ''}
+                    onClick={() => setColorIndex(idx)}
+                  />
+                ))}
+              </div>
+              <div style={{ flex: 1 }} />
+              <button onClick={closeEditor}>Cancel</button>
+              <button onClick={saveEditor}>Save</button>
+            </div>
+            <div className="modal-canvas">
+              <canvas
+                ref={editorCanvasRef}
+                width={editorTileSize}
+                height={editorTileSize}
+                style={{ width: 512, height: 512, imageRendering: 'pixelated', background: '#fff' }}
+                onMouseDown={handleEditorMouseDown}
+                onMouseMove={handleEditorMouseMove}
+                onMouseUp={handleEditorMouseUp}
+                onMouseLeave={handleEditorMouseUp}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

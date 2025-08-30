@@ -495,10 +495,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, payload })
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Save failed: ${res.status} ${res.statusText} ${txt}`);
+      }
       alert('Saved to cloud.');
     } catch (err) {
-      alert('Save failed.');
+      console.error(err);
+      alert('Save failed. See console for details.');
     }
   }
 
@@ -508,12 +512,16 @@ export default function App() {
     try {
       const res = await fetch('/.netlify/functions/load-project?id=' + encodeURIComponent(id));
       if (res.status === 404) { alert('Not found'); return; }
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Load failed: ${res.status} ${res.statusText} ${txt}`);
+      }
       const payload = await res.json();
       importPayload(payload);
       alert('Loaded from cloud.');
     } catch (err) {
-      alert('Load failed.');
+      console.error(err);
+      alert('Load failed. See console for details.');
     }
   }
 

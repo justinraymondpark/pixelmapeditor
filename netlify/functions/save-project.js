@@ -13,13 +13,14 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: 'Invalid payload' };
     }
     const store = getStore('pixelmapeditor-projects');
-    await store.set(id, JSON.stringify(payload), { metadata: { contentType: 'application/json' } });
+    await store.set(id, JSON.stringify(payload), { contentType: 'application/json' });
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ok: true })
     };
   } catch (err) {
+    console.error('save-project error', err);
     return { statusCode: 500, body: 'Server error' };
   }
 };

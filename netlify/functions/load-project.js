@@ -18,6 +18,7 @@ exports.handler = async (event) => {
       body: value
     };
   } catch (err) {
+    console.error('load-project error', err);
     return { statusCode: 500, body: 'Server error' };
   }
 };

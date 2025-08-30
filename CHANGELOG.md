@@ -15,6 +15,10 @@
 - Rich editor palette + color picker
 - Cloud Save/Load via Netlify Functions + Blobs (by Project ID)
 
+## 0.0.5
+- Fix Netlify Blobs set options, add Node 18 runtime and esbuild bundler
+- Better client error messages for Save/Load
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

@@ -31,7 +31,7 @@ export default function App() {
   const [selectedLoadId, setSelectedLoadId] = useState<string>('');
 
   // Tile bitmaps per tileset
-  type TileBitmap = { id: string; size: number; pixels: (string | null)[] };
+  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number };
   const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
     grassland: [],
     desert: [],
@@ -52,6 +52,8 @@ export default function App() {
   const editorTileSize = 32;
   const [editorPixels, setEditorPixels] = useState<(string | null)[]>(Array(editorTileSize * editorTileSize).fill(null));
   const [editorWorkingIndex, setEditorWorkingIndex] = useState<number | null>(null);
+  const [editorAutoGroupName, setEditorAutoGroupName] = useState<string>('');
+  const [editorMask, setEditorMask] = useState<number>(0);
   const editorPalette: string[] = [
     '#000000','#222222','#444444','#666666','#888888','#aaaaaa','#cccccc','#ffffff',
     '#ff0000','#ff7f7f','#990000','#7f0000','#ff6600','#ffbb99','#cc5200','#663300',
@@ -62,16 +64,16 @@ export default function App() {
   ];
   const [editorColor, setEditorColor] = useState<string>('#000000');
 
-  // Local storage hydration for tiles
+  // Local storage hydration for tiles (with auto-tiling metadata)
   useEffect(() => {
     try {
       const raw = localStorage.getItem('pixelmapeditor.tiles');
       if (raw) {
-        const parsed: Record<string, { size: number; pixels: (string | null)[] }[]> = JSON.parse(raw);
+        const parsed: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = JSON.parse(raw);
         const rebuilt = emptyTilesBySet();
         (Object.keys(rebuilt) as TileSetName[]).forEach(setName => {
           const arr = parsed[setName] || [];
-          rebuilt[setName] = arr.map((t, idx) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels }));
+          rebuilt[setName] = arr.map((t, idx) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
         });
         setTilesBySet(rebuilt);
         setEditorActiveSet('grassland');
@@ -82,9 +84,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const toStore: Record<string, { size: number; pixels: (string | null)[] }[]> = {};
+    const toStore: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = {};
     (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
-      toStore[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels }));
+      toStore[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
     });
     try { localStorage.setItem('pixelmapeditor.tiles', JSON.stringify(toStore)); } catch {}
   }, [tilesBySet]);
@@ -354,10 +356,14 @@ export default function App() {
       if (tile) {
         setEditorPixels([...tile.pixels]);
         setEditorWorkingIndex(selectedTileIndex);
+        setEditorAutoGroupName(tile.autoGroup || '');
+        setEditorMask(tile.autoMask ?? 0);
       }
     } else {
       setEditorPixels(Array(editorTileSize * editorTileSize).fill(null));
       setEditorWorkingIndex(null);
+      setEditorAutoGroupName('');
+      setEditorMask(0);
     }
     setEditorOpen(true);
   }
@@ -414,7 +420,7 @@ export default function App() {
   function saveEditor() {
     if (editorMode === 'add') {
       const targetSet = editorActiveSet;
-      const newTile: TileBitmap = { id: `${targetSet}-${Date.now()}`, size: editorTileSize, pixels: [...editorPixels] };
+      const newTile: TileBitmap = { id: `${targetSet}-${Date.now()}`, size: editorTileSize, pixels: [...editorPixels], autoGroup: editorAutoGroupName || undefined, autoMask: Number.isFinite(editorMask) ? editorMask : undefined };
       setTilesBySet(prev => {
         const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
         copy[targetSet] = [...copy[targetSet], newTile];
@@ -427,7 +433,7 @@ export default function App() {
         const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
         const arr = [...copy[editorActiveSet]];
         const existing = arr[idx];
-        arr[idx] = { ...existing, pixels: [...editorPixels] };
+        arr[idx] = { ...existing, pixels: [...editorPixels], autoGroup: editorAutoGroupName || undefined, autoMask: Number.isFinite(editorMask) ? editorMask : existing.autoMask };
         copy[editorActiveSet] = arr;
         return copy;
       });
@@ -645,6 +651,15 @@ export default function App() {
                   <div key={idx} style={{ background: c }} className={editorColor === c ? 'active' : ''} onClick={() => setEditorColor(c)} />
                 ))}
                 <input type="color" value={editorColor} onChange={e => setEditorColor(e.target.value)} />
+              </div>
+              <div className="editor-autotile">
+                <input type="text" placeholder="Auto group" value={editorAutoGroupName} onChange={e => setEditorAutoGroupName(e.target.value)} />
+                <div className="mask-toggle">
+                  <label><input type="checkbox" checked={!!(editorMask & 1)} onChange={e => setEditorMask(m => e.target.checked ? (m | 1) : (m & ~1))} />N</label>
+                  <label><input type="checkbox" checked={!!(editorMask & 2)} onChange={e => setEditorMask(m => e.target.checked ? (m | 2) : (m & ~2))} />E</label>
+                  <label><input type="checkbox" checked={!!(editorMask & 4)} onChange={e => setEditorMask(m => e.target.checked ? (m | 4) : (m & ~4))} />S</label>
+                  <label><input type="checkbox" checked={!!(editorMask & 8)} onChange={e => setEditorMask(m => e.target.checked ? (m | 8) : (m & ~8))} />W</label>
+                </div>
               </div>
               <div style={{ flex: 1 }} />
               <button onClick={closeEditor}>Cancel</button>

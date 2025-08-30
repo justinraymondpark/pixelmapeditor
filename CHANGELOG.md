@@ -29,6 +29,12 @@
 - Add list-projects function and Load Cloud modal with dropdown of saves
 - Load now uses selection from modal (also fills Project ID)
 
+## 0.1.0
+- Add tiles sidebar with grid of tiles and group filter
+- Add auto-tiling metadata (group + 4-dir mask) to tiles
+- Editor supports setting group/mask; stored in localStorage/export
+- UI toggle for future auto-tiling workflow (logic skeleton in place)
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

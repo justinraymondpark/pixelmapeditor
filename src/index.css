@@ -133,6 +133,48 @@ canvas {
   background: #bdc3c7;
 }
 
+.editor-autotile {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.editor-autotile input[type="text"] {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #95a5a6;
+}
+
+.mask-toggle label { margin-right: 0.5rem; }
+
+.tiles-sidebar {
+  position: fixed;
+  top: 48px;
+  right: 0;
+  width: 260px;
+  bottom: 0;
+  background: #ecf0f1;
+  border-left: 1px solid #bdc3c7;
+  display: flex;
+  flex-direction: column;
+}
+
+.tiles-sidebar-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem;
+  background: #dfe6e9;
+}
+
+.tiles-grid {
+  padding: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  overflow: auto;
+}
+
 .editor-palette {
   display: flex;
   align-items: center;

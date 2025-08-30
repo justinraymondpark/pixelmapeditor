@@ -25,6 +25,10 @@
 ## 0.0.7
 - Initialize Netlify Blobs in functions via connectLambda(event) to fix MissingBlobsEnvironmentError
 
+## 0.0.8
+- Add list-projects function and Load Cloud modal with dropdown of saves
+- Load now uses selection from modal (also fills Project ID)
+
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 

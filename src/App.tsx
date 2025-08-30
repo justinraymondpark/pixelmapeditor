@@ -26,6 +26,9 @@ export default function App() {
   const lastPanPosRef = useRef({ x: 0, y: 0 });
   const hoveredTileRef = useRef<{ i: number; j: number } | null>(null);
   const [projectId, setProjectId] = useState('');
+  const [loadModalOpen, setLoadModalOpen] = useState(false);
+  const [availableProjectIds, setAvailableProjectIds] = useState<string[]>([]);
+  const [selectedLoadId, setSelectedLoadId] = useState<string>('');
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[] };
@@ -525,6 +528,27 @@ export default function App() {
     }
   }
 
+  async function openLoadModal() {
+    try {
+      const res = await fetch('/.netlify/functions/list-projects');
+      if (!res.ok) throw new Error(await res.text());
+      const { ids } = await res.json();
+      setAvailableProjectIds(ids || []);
+      setSelectedLoadId(ids && ids[0] ? ids[0] : '');
+      setLoadModalOpen(true);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to fetch cloud saves.');
+    }
+  }
+
+  async function confirmLoadSelected() {
+    if (!selectedLoadId) { alert('Select a Project ID'); return; }
+    setProjectId(selectedLoadId);
+    setLoadModalOpen(false);
+    await loadFromCloud();
+  }
+
   function exportPNG() {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -591,7 +615,7 @@ export default function App() {
         <div className="cloud">
           <input type="text" placeholder="Project ID" value={projectId} onChange={e => setProjectId(e.target.value)} />
           <button onClick={saveToCloud}>Save Cloud</button>
-          <button onClick={loadFromCloud}>Load Cloud</button>
+          <button onClick={openLoadModal}>Load Cloud</button>
         </div>
         <button onClick={() => setGrid(g => !g)}>{grid ? 'Hide Grid' : 'Show Grid'}</button>
         <button onClick={() => setBoard(new Map())}>Clear</button>
@@ -656,6 +680,25 @@ export default function App() {
                   onMouseLeave={handleEditorMouseUp}
                 />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loadModalOpen && (
+        <div className="modal-backdrop" onClick={() => setLoadModalOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">Load from Cloud</div>
+            <div className="modal-tools">
+              <select value={selectedLoadId} onChange={e => setSelectedLoadId(e.target.value)}>
+                <option value="" disabled>Select a Project ID</option>
+                {availableProjectIds.map(id => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setLoadModalOpen(false)}>Cancel</button>
+              <button onClick={confirmLoadSelected} disabled={!selectedLoadId}>Load</button>
             </div>
           </div>
         </div>

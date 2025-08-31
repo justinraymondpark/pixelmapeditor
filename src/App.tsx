@@ -1073,7 +1073,7 @@ export default function App() {
               let currentRow: JSX.Element[] = [];
               const flushRow = () => {
                 if (!currentRow.length || !currentBatch) return;
-                rows.push(<div key={`row-${rows.length}-${currentBatch}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${colCount}, 28px)` }}>{currentRow}</div>);
+                rows.push(<div key={`row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${colCount}, 28px)` }}>{currentRow}</div>);
                 currentRow = []; colIndex = 0;
               };
               tilesBySet[tileSet].forEach((t, idx) => {

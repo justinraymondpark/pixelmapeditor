@@ -894,7 +894,7 @@ export default function App() {
           if (sets.includes(name)) { alert('Name exists'); return; }
           setSets(prev => [...prev, name]);
           setTilesBySet(prev => ({ ...prev, [name]: [] }));
-          setPaletteBySet(prev => ({ ...prev, [name]: [...(paletteBySet.grassland || builtinPalettes.grassland)] }));
+          setPaletteBySet(prev => ({ ...prev, [name]: [...builtinPalettes.grassland] }));
           setTileSet(name);
         }}>Add Set</button>
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>

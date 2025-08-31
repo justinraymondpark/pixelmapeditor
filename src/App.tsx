@@ -60,7 +60,7 @@ export default function App() {
   const [stampSel, setStampSel] = useState<{ batchId: string | null; indices: number[] }>({ batchId: null, indices: [] });
 
   // Tile bitmaps per tileset
-  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string };
+  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string; indexWithinBatch?: number };
   const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
     grassland: [],
     desert: [],
@@ -1065,36 +1065,31 @@ export default function App() {
             }}
           >
             {(() => {
+              // render batches in their own grids with the exact column count from the source sheet
               const rows: JSX.Element[] = [];
-              let current: string | null = null;
-              let buffer: JSX.Element[] = [];
+              let currentBatch: string | null = null;
+              let colCount = 7;
+              let colIndex = 0;
+              let currentRow: JSX.Element[] = [];
+              const flushRow = () => {
+                if (!currentRow.length || !currentBatch) return;
+                rows.push(<div key={`row-${rows.length}-${currentBatch}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${colCount}, 28px)` }}>{currentRow}</div>);
+                currentRow = []; colIndex = 0;
+              };
               tilesBySet[tileSet].forEach((t, idx) => {
+                if (t.spacer) { flushRow(); rows.push(<div key={`sp-${rows.length}`} style={{ height: 8 }} />); currentBatch = null; return; }
                 const batchId = t.batchId || 'default';
-                const cols = batchMetaBySet[tileSet]?.[batchId]?.cols || 7;
-                if (t.spacer) {
-                  if (buffer.length) rows.push(<div key={`row-${rows.length}-${current}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${cols}, 44px)` }}>{buffer}</div>);
-                  rows.push(<div key={`sp-${rows.length}`} style={{ height: 6 }} />);
-                  current = batchId; buffer = []; return;
-                }
-                if (current !== batchId && buffer.length) {
-                  rows.push(<div key={`row-${rows.length}-${current}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${cols}, 44px)` }}>{buffer}</div>);
-                  buffer = []; current = batchId;
-                }
+                if (batchId !== currentBatch) { flushRow(); currentBatch = batchId; colCount = batchMetaBySet[tileSet]?.[batchId]?.cols || 12; }
                 const isSel = selectedTileIndex === idx;
-                const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(t.indexWithinBatch as any);
-                buffer.push(
-                  <div key={t.id} data-batch={batchId} data-idx={t.indexWithinBatch as any} style={{ width: 40, height: 40, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid #bdc3c7'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
-                    <canvas width={t.size} height={t.size} style={{ width: 40, height: 40, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
+                const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(colIndex);
+                currentRow.push(
+                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: 24, height: 24, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid #bdc3c7'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
+                    <canvas width={t.size} height={t.size} style={{ width: 24, height: 24, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
                   </div>
                 );
-                // mark positional index inside batch
-                (tilesBySet[tileSet][idx] as any).indexWithinBatch = ((tilesBySet[tileSet][idx] as any).indexWithinBatch ?? buffer.length - 1);
+                colIndex = (colIndex + 1) % colCount;
               });
-              if (buffer.length) {
-                const lastBatch = current || 'default';
-                const cols = batchMetaBySet[tileSet]?.[lastBatch]?.cols || 7;
-                rows.push(<div key={`row-last-${rows.length}-${lastBatch}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${cols}, 44px)` }}>{buffer}</div>);
-              }
+              flushRow();
               return rows;
             })()}
           </div>

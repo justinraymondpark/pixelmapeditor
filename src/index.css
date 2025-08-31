@@ -179,10 +179,7 @@ canvas {
   overflow: auto;
 }
 
-.tiles-row {
-  display: grid;
-  gap: 6px;
-}
+.tiles-row { display: grid; gap: 0; }
 
 .tiles-row + .tiles-row { margin-top: 6px; }
 

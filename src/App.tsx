@@ -60,6 +60,7 @@ export default function App() {
   const [stampSel, setStampSel] = useState<{ batchId: string | null; indices: number[] }>({ batchId: null, indices: [] });
   // Tileset zoom (thumbnail size in px)
   const [tileThumb, setTileThumb] = useState<number>(16);
+  const [tilesPerRow, setTilesPerRow] = useState<number>(25);
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string; indexWithinBatch?: number };
@@ -1037,6 +1038,10 @@ export default function App() {
               <span style={{ fontSize: 12 }}>Zoom</span>
               <input type="range" min={12} max={48} step={2} value={tileThumb} onChange={e => setTileThumb(parseInt(e.target.value,10))} />
             </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 12 }}>Cols</span>
+              <input type="number" min={8} max={64} value={tilesPerRow} onChange={e => setTilesPerRow(Math.max(8, Math.min(64, parseInt(e.target.value,10)||25)))} style={{ width: 56 }} />
+            </label>
           </div>
           <div className="tiles-grid"
             onMouseDown={(e) => {
@@ -1080,7 +1085,7 @@ export default function App() {
               let currentRow: JSX.Element[] = [];
               const flushRow = () => {
                 if (!currentRow.length || !currentBatch) return;
-                rows.push(<div key={`row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${colCount}, 28px)` }}>{currentRow}</div>);
+                rows.push(<div key={`row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${Math.max(colCount, tilesPerRow)}, ${tileThumb}px)` }}>{currentRow}</div>);
                 currentRow = []; colIndex = 0;
               };
               tilesBySet[tileSet].forEach((t, idx) => {
@@ -1090,8 +1095,8 @@ export default function App() {
                 const isSel = selectedTileIndex === idx;
                 const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(colIndex);
                 currentRow.push(
-                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: tileThumb, height: tileThumb, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid #bdc3c7'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
-                    <canvas width={t.size} height={t.size} style={{ width: tileThumb-2, height: tileThumb-2, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
+                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: tileThumb, height: tileThumb, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid transparent'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
+                    <canvas width={t.size} height={t.size} style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
                   </div>
                 );
                 colIndex = (colIndex + 1) % colCount;

@@ -47,3 +47,9 @@
 ## 0.0.1
 - Initial project setup with isometric grid, brush/eraser, export
 
+## 0.1.3
+- Fix white screen when switching to new/custom sets (init maps)
+- Tiles sidebar Cols +/- controls mirrored in Auto-tiling Setup
+- Auto-tiling Setup 3x3 cells scale with Zoom; no indentation
+- Auto-tiling Setup tile picker mirrors sidebar batch rows/cols
+

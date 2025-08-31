@@ -157,6 +157,26 @@ export default function App() {
     try { localStorage.setItem('pixelmapeditor.autotemplate', JSON.stringify(autoTemplateBySet)); } catch {}
   }, [autoTemplateBySet]);
 
+  // Ensure state maps always contain all declared sets to avoid undefined access
+  useEffect(() => {
+    setTilesBySet(prev => {
+      const next = { ...prev } as Record<TileSetName, TileBitmap[]>;
+      let changed = false;
+      sets.forEach(name => {
+        if (!next[name]) { next[name] = []; changed = true; }
+      });
+      return changed ? next : prev;
+    });
+    setPaletteBySet(prev => {
+      const next = { ...prev } as Record<string, string[]>;
+      let changed = false;
+      sets.forEach(name => {
+        if (!next[name]) { next[name] = [...builtinPalettes.grassland]; changed = true; }
+      });
+      return changed ? next : prev;
+    });
+  }, [sets]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1171,11 +1191,13 @@ export default function App() {
                     <input type="range" min={12} max={48} step={2} value={tileThumb} onChange={e => setTileThumb(parseInt(e.target.value,10))} />
                     <span style={{ fontSize:12 }}>Cols</span>
                     <input type="number" min={8} max={64} value={tilesPerRow} onChange={e => setTilesPerRow(Math.max(8, Math.min(64, parseInt(e.target.value,10)||25)))} style={{ width: 56 }} />
+                    <button onClick={() => setTilesPerRow(v => Math.max(8, v-1))}>−</button>
+                    <button onClick={() => setTilesPerRow(v => Math.min(64, v+1))}>+</button>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(3, ${tileThumb*2}px)`, gap: 6, justifyContent: 'center' }}>
                   {['top-left','top','top-right','left','center','right','bottom-left','bottom','bottom-right'].map((role) => (
-                    <div key={role} style={{ border: autoTemplateActiveRole === role ? '2px solid #e67e22' : '1px solid #bdc3c7', width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }} onClick={() => setAutoTemplateActiveRole(role)}>
+                    <div key={role} style={{ border: autoTemplateActiveRole === role ? '2px solid #e67e22' : '1px solid #bdc3c7', width: tileThumb*2, height: tileThumb*2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }} onClick={() => setAutoTemplateActiveRole(role)}>
                       {(autoTemplateBySet[tileSet]?.[autoConfigGroup]?.[role] !== undefined) ? (
                         <canvas
                           width={editorTileSize}
@@ -1191,37 +1213,49 @@ export default function App() {
                 </div>
                 <div style={{ marginTop: 12, fontSize: 12, textAlign: 'center' }}>Pick a cell, then click a tile below to assign it.</div>
                 <div style={{ marginTop: 10 }}>
-                  <div className="tiles-row" style={{ gridTemplateColumns: `repeat(${tilesPerRow}, ${tileThumb}px)` }}>
-                  {tilesBySet[tileSet]?.map((t, idx) => (
-                    <canvas
-                      key={t.id}
-                      width={t.size}
-                      height={t.size}
-                      style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }}
-                      ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
-                      onClick={() => {
-                        setAutoTemplateBySet(prev => {
-                          const next = { ...prev } as Record<string, Record<string, Record<string, number>>>;
-                          if (!next[tileSet]) next[tileSet] = {};
-                          if (!next[tileSet][autoConfigGroup]) next[tileSet][autoConfigGroup] = {} as Record<string, number>;
-                          next[tileSet][autoConfigGroup][autoTemplateActiveRole] = idx;
-                          return next;
-                        });
-                        // also seed masks from template for a simple default
-                        const masks = roleToMasks(autoTemplateActiveRole);
-                        if (masks.length) {
-                          setAutoRulesBySet(prev => {
-                            const n = { ...prev } as Record<string, Record<string, Record<number, number[]>>>;
-                            if (!n[tileSet]) n[tileSet] = {};
-                            if (!n[tileSet][autoConfigGroup]) n[tileSet][autoConfigGroup] = {} as Record<number, number[]>;
-                            masks.forEach(m => { n[tileSet][autoConfigGroup][m] = [idx]; });
-                            return n;
+                  {(() => {
+                    const rows: JSX.Element[] = [];
+                    let currentBatch: string | null = null;
+                    let colCount = 7;
+                    let colIndex = 0;
+                    let currentRow: JSX.Element[] = [];
+                    const flushRow = () => {
+                      if (!currentRow.length || !currentBatch) return;
+                      rows.push(<div key={`cfg-row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${Math.max(colCount, tilesPerRow)}, ${tileThumb}px)` }}>{currentRow}</div>);
+                      currentRow = []; colIndex = 0;
+                    };
+                    tilesBySet[tileSet]?.forEach((t, idx) => {
+                      if (t.spacer) { flushRow(); rows.push(<div key={`cfg-sp-${rows.length}`} style={{ height: 8 }} />); currentBatch = null; return; }
+                      const batchId = t.batchId || 'default';
+                      if (batchId !== currentBatch) { flushRow(); currentBatch = batchId; colCount = batchMetaBySet[tileSet]?.[batchId]?.cols || 12; }
+                      currentRow.push(
+                        <div key={`cfg-${t.id}`} style={{ width: tileThumb, height: tileThumb, background: '#fff' }} onClick={() => {
+                          setAutoTemplateBySet(prev => {
+                            const next = { ...prev } as Record<string, Record<string, Record<string, number>>>;
+                            if (!next[tileSet]) next[tileSet] = {};
+                            if (!next[tileSet][autoConfigGroup]) next[tileSet][autoConfigGroup] = {} as Record<string, number>;
+                            next[tileSet][autoConfigGroup][autoTemplateActiveRole] = idx;
+                            return next;
                           });
-                        }
-                      }}
-                    />
-                  ))}
-                  </div>
+                          const masks = roleToMasks(autoTemplateActiveRole);
+                          if (masks.length) {
+                            setAutoRulesBySet(prev => {
+                              const n = { ...prev } as Record<string, Record<string, Record<number, number[]>>>;
+                              if (!n[tileSet]) n[tileSet] = {};
+                              if (!n[tileSet][autoConfigGroup]) n[tileSet][autoConfigGroup] = {} as Record<number, number[]>;
+                              masks.forEach(m => { n[tileSet][autoConfigGroup][m] = [idx]; });
+                              return n;
+                            });
+                          }
+                        }}>
+                          <canvas width={t.size} height={t.size} style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }} ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }} />
+                        </div>
+                      );
+                      colIndex = (colIndex + 1) % colCount;
+                    });
+                    flushRow();
+                    return rows;
+                  })()}
                 </div>
               </div>
             </div>

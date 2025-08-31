@@ -393,6 +393,21 @@ export default function App() {
     next.set(`${i},${j}`, { tileSet: cell.tileSet, tileIndex: tIdx });
   }
 
+  function roleToMasks(role: string): number[] {
+    switch (role) {
+      case 'center': return [15];
+      case 'top': return [14];
+      case 'bottom': return [11];
+      case 'left': return [7];
+      case 'right': return [13];
+      case 'top-left': return [6];
+      case 'top-right': return [12];
+      case 'bottom-left': return [3];
+      case 'bottom-right': return [9];
+      default: return [];
+    }
+  }
+
   function getOffscreenForTile(tileSetName: TileSetName, tileIndex: number): HTMLCanvasElement | null {
     const tile = tilesBySet[tileSetName][tileIndex];
     if (!tile) return null;
@@ -1047,65 +1062,55 @@ export default function App() {
               <button onClick={() => setAutoConfigOpen(false)}>Close</button>
             </div>
             <div className="modal-canvas" style={{ display: 'block' }}>
-              <div style={{ padding: '1rem', display: 'grid', gridTemplateColumns: '280px 1fr', gap: '12px' }}>
-                <div>
-                  <div style={{ marginBottom: 8, fontWeight: 600 }}>3x3 Template</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 56px)', gap: 4 }}>
-                    {['top-left','top','top-right','left','center','right','bottom-left','bottom','bottom-right'].map((role) => (
-                      <div key={role} style={{ border: autoTemplateActiveRole === role ? '2px solid #e67e22' : '1px solid #bdc3c7', width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }} onClick={() => setAutoTemplateActiveRole(role)}>
-                        {(autoTemplateBySet[tileSet]?.[autoConfigGroup]?.[role] !== undefined) ? (
-                          <canvas
-                            width={editorTileSize}
-                            height={editorTileSize}
-                            style={{ width: 48, height: 48, imageRendering: 'pixelated' }}
-                            ref={(el)=>{ const tIdx = autoTemplateBySet[tileSet][autoConfigGroup][role]!; if (el) { const t = tilesBySet[tileSet]?.[tIdx]; if (t) renderPixelsToCanvas(el, t.pixels, t.size); } }}
-                          />
-                        ) : (
-                          <span style={{ fontSize: 10 }}>{role}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 10, fontSize: 12 }}>Pick a role, then click a tile on the right to assign it.</div>
+              <div style={{ padding: '1rem' }}>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>3x3 Template</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 64px)', gap: 6, justifyContent: 'center' }}>
+                  {['top-left','top','top-right','left','center','right','bottom-left','bottom','bottom-right'].map((role) => (
+                    <div key={role} style={{ border: autoTemplateActiveRole === role ? '2px solid #e67e22' : '1px solid #bdc3c7', width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }} onClick={() => setAutoTemplateActiveRole(role)}>
+                      {(autoTemplateBySet[tileSet]?.[autoConfigGroup]?.[role] !== undefined) ? (
+                        <canvas
+                          width={editorTileSize}
+                          height={editorTileSize}
+                          style={{ width: 56, height: 56, imageRendering: 'pixelated' }}
+                          ref={(el)=>{ const tIdx = autoTemplateBySet[tileSet][autoConfigGroup][role]!; if (el) { const t = tilesBySet[tileSet]?.[tIdx]; if (t) renderPixelsToCanvas(el, t.pixels, t.size); } }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: 10 }}>{role}</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <div style={{ marginBottom: 8, fontWeight: 600 }}>Assign tiles to masks (advanced)</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                    {[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].map(mask => (
-                      <div key={mask} style={{ background: '#fff', border: '1px solid #bdc3c7', padding: '6px' }}>
-                        <div style={{ fontSize: 12, marginBottom: 4 }}>mask {mask.toString(2).padStart(4,'0')}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 28px)', gap: '4px', justifyContent: 'start' }}>
-                          {tilesBySet[tileSet]?.map((t, idx) => (
-                            <canvas
-                              key={t.id}
-                              width={t.size}
-                              height={t.size}
-                              style={{ width: 28, height: 28, imageRendering: 'pixelated', border: ((autoRulesBySet[tileSet]?.[autoConfigGroup]?.[mask]||[]).includes(idx)) ? '2px solid #e67e22' : '1px solid #bdc3c7' }}
-                              ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
-                              onClick={() => {
-                                setAutoRulesBySet(prev => {
-                                  const next = { ...prev } as Record<string, Record<string, Record<number, number[]>>>;
-                                  if (!next[tileSet]) next[tileSet] = {};
-                                  if (!next[tileSet][autoConfigGroup]) next[tileSet][autoConfigGroup] = {} as Record<number, number[]>;
-                                  const arr = next[tileSet][autoConfigGroup][mask] ? [...next[tileSet][autoConfigGroup][mask]] : [];
-                                  if (!arr.includes(idx)) arr.push(idx); else arr.splice(arr.indexOf(idx),1);
-                                  next[tileSet][autoConfigGroup][mask] = arr;
-                                  return next;
-                                });
-                                setAutoTemplateBySet(prev => {
-                                  const next = { ...prev } as Record<string, Record<string, Record<string, number>>>;
-                                  if (!next[tileSet]) next[tileSet] = {};
-                                  if (!next[tileSet][autoConfigGroup]) next[tileSet][autoConfigGroup] = {} as Record<string, number>;
-                                  next[tileSet][autoConfigGroup][autoTemplateActiveRole] = idx;
-                                  return next;
-                                });
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <div style={{ marginTop: 12, fontSize: 12, textAlign: 'center' }}>Pick a cell, then click a tile below to assign it.</div>
+                <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(8, 36px)', gap: 6, justifyContent: 'center' }}>
+                  {tilesBySet[tileSet]?.map((t, idx) => (
+                    <canvas
+                      key={t.id}
+                      width={t.size}
+                      height={t.size}
+                      style={{ width: 36, height: 36, imageRendering: 'pixelated', border: '1px solid #bdc3c7' }}
+                      ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
+                      onClick={() => {
+                        setAutoTemplateBySet(prev => {
+                          const next = { ...prev } as Record<string, Record<string, Record<string, number>>>;
+                          if (!next[tileSet]) next[tileSet] = {};
+                          if (!next[tileSet][autoConfigGroup]) next[tileSet][autoConfigGroup] = {} as Record<string, number>;
+                          next[tileSet][autoConfigGroup][autoTemplateActiveRole] = idx;
+                          return next;
+                        });
+                        // also seed masks from template for a simple default
+                        const masks = roleToMasks(autoTemplateActiveRole);
+                        if (masks.length) {
+                          setAutoRulesBySet(prev => {
+                            const n = { ...prev } as Record<string, Record<string, Record<number, number[]>>>;
+                            if (!n[tileSet]) n[tileSet] = {};
+                            if (!n[tileSet][autoConfigGroup]) n[tileSet][autoConfigGroup] = {} as Record<number, number[]>;
+                            masks.forEach(m => { n[tileSet][autoConfigGroup][m] = [idx]; });
+                            return n;
+                          });
+                        }
+                      }}
+                    />
+                  ))}
                 </div>
               </div>
             </div>

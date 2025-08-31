@@ -58,6 +58,8 @@ export default function App() {
   const [stamp, setStamp] = useState<{ set: TileSetName; w: number; h: number; tiles: number[] } | null>(null);
   const stampSelectingRef = useRef<{ active: boolean; batchId: string | null; start: number; cols: number } | null>(null);
   const [stampSel, setStampSel] = useState<{ batchId: string | null; indices: number[] }>({ batchId: null, indices: [] });
+  // Tileset zoom (thumbnail size in px)
+  const [tileThumb, setTileThumb] = useState<number>(16);
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string; indexWithinBatch?: number };
@@ -1030,6 +1032,11 @@ export default function App() {
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
+            <div style={{ flex: 1 }} />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 12 }}>Zoom</span>
+              <input type="range" min={12} max={48} step={2} value={tileThumb} onChange={e => setTileThumb(parseInt(e.target.value,10))} />
+            </label>
           </div>
           <div className="tiles-grid"
             onMouseDown={(e) => {
@@ -1083,8 +1090,8 @@ export default function App() {
                 const isSel = selectedTileIndex === idx;
                 const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(colIndex);
                 currentRow.push(
-                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: 24, height: 24, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid #bdc3c7'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
-                    <canvas width={t.size} height={t.size} style={{ width: 24, height: 24, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
+                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: tileThumb, height: tileThumb, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid #bdc3c7'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
+                    <canvas width={t.size} height={t.size} style={{ width: tileThumb-2, height: tileThumb-2, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
                   </div>
                 );
                 colIndex = (colIndex + 1) % colCount;

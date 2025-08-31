@@ -344,10 +344,23 @@ export default function App() {
     return map.get(`${i},${j}`);
   }
 
+  function isRuleMember(setName: TileSetName, groupName: string, tileIndex: number | undefined): boolean {
+    if (tileIndex === undefined) return false;
+    const rules = autoRulesBySet[setName]?.[groupName];
+    if (!rules) return false;
+    for (const m in rules) {
+      const arr = rules[m as any];
+      if (arr && arr.includes(tileIndex)) return true;
+    }
+    return false;
+  }
+
   function isGroupCell(cell: BoardCell | undefined, groupName: string, setName: TileSetName): boolean {
     if (!cell || cell.tileSet !== setName || cell.tileIndex === undefined) return false;
     const meta = getTileMeta(setName, cell.tileIndex);
-    return !!(meta && meta.autoGroup === groupName);
+    if (meta && meta.autoGroup === groupName) return true;
+    // Also treat any tile that is part of the group's assigned rule set as belonging to the group
+    return isRuleMember(setName, groupName, cell.tileIndex);
   }
 
   function computeMaskFor(map: Map<string, BoardCell>, i: number, j: number, groupName: string, setName: TileSetName): number {

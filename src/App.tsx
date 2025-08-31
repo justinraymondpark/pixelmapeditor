@@ -1041,6 +1041,8 @@ export default function App() {
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontSize: 12 }}>Cols</span>
               <input type="number" min={8} max={64} value={tilesPerRow} onChange={e => setTilesPerRow(Math.max(8, Math.min(64, parseInt(e.target.value,10)||25)))} style={{ width: 56 }} />
+              <button onClick={() => setTilesPerRow(v => Math.max(8, v-1))}>−</button>
+              <button onClick={() => setTilesPerRow(v => Math.min(64, v+1))}>+</button>
             </label>
           </div>
           <div className="tiles-grid"
@@ -1095,7 +1097,7 @@ export default function App() {
                 const isSel = selectedTileIndex === idx;
                 const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(colIndex);
                 currentRow.push(
-                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: tileThumb, height: tileThumb, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid transparent'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
+                  <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: tileThumb, height: tileThumb, outline: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : 'none'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
                     <canvas width={t.size} height={t.size} style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
                   </div>
                 );
@@ -1162,15 +1164,23 @@ export default function App() {
             </div>
             <div className="modal-canvas" style={{ display: 'block' }}>
               <div style={{ padding: '1rem' }}>
-                <div style={{ marginBottom: 8, fontWeight: 600 }}>3x3 Template</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 64px)', gap: 6, justifyContent: 'center' }}>
+                <div style={{ marginBottom: 8, fontWeight: 600, display:'flex', alignItems:'center', gap:8 }}>
+                  <span>3x3 Template</span>
+                  <div style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6 }}>
+                    <span style={{ fontSize:12 }}>Zoom</span>
+                    <input type="range" min={12} max={48} step={2} value={tileThumb} onChange={e => setTileThumb(parseInt(e.target.value,10))} />
+                    <span style={{ fontSize:12 }}>Cols</span>
+                    <input type="number" min={8} max={64} value={tilesPerRow} onChange={e => setTilesPerRow(Math.max(8, Math.min(64, parseInt(e.target.value,10)||25)))} style={{ width: 56 }} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(3, ${tileThumb*2}px)`, gap: 6, justifyContent: 'center' }}>
                   {['top-left','top','top-right','left','center','right','bottom-left','bottom','bottom-right'].map((role) => (
                     <div key={role} style={{ border: autoTemplateActiveRole === role ? '2px solid #e67e22' : '1px solid #bdc3c7', width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }} onClick={() => setAutoTemplateActiveRole(role)}>
                       {(autoTemplateBySet[tileSet]?.[autoConfigGroup]?.[role] !== undefined) ? (
                         <canvas
                           width={editorTileSize}
                           height={editorTileSize}
-                          style={{ width: 56, height: 56, imageRendering: 'pixelated' }}
+                          style={{ width: tileThumb*2-6, height: tileThumb*2-6, imageRendering: 'pixelated' }}
                           ref={(el)=>{ const tIdx = autoTemplateBySet[tileSet][autoConfigGroup][role]!; if (el) { const t = tilesBySet[tileSet]?.[tIdx]; if (t) renderPixelsToCanvas(el, t.pixels, t.size); } }}
                         />
                       ) : (
@@ -1180,13 +1190,14 @@ export default function App() {
                   ))}
                 </div>
                 <div style={{ marginTop: 12, fontSize: 12, textAlign: 'center' }}>Pick a cell, then click a tile below to assign it.</div>
-                <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(8, 36px)', gap: 6, justifyContent: 'center' }}>
+                <div style={{ marginTop: 10 }}>
+                  <div className="tiles-row" style={{ gridTemplateColumns: `repeat(${tilesPerRow}, ${tileThumb}px)` }}>
                   {tilesBySet[tileSet]?.map((t, idx) => (
                     <canvas
                       key={t.id}
                       width={t.size}
                       height={t.size}
-                      style={{ width: 36, height: 36, imageRendering: 'pixelated', border: '1px solid #bdc3c7' }}
+                      style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }}
                       ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
                       onClick={() => {
                         setAutoTemplateBySet(prev => {
@@ -1210,6 +1221,7 @@ export default function App() {
                       }}
                     />
                   ))}
+                  </div>
                 </div>
               </div>
             </div>

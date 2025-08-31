@@ -157,7 +157,7 @@ canvas {
   position: fixed;
   top: 48px;
   right: 0;
-  width: 260px;
+  width: 380px;
   bottom: 0;
   background: #ecf0f1;
   border-left: 1px solid #bdc3c7;
@@ -176,7 +176,7 @@ canvas {
 .tiles-grid {
   padding: 0.5rem;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 6px;
   overflow: auto;
 }

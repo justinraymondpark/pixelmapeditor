@@ -54,7 +54,7 @@ export default function App() {
   const [autoTemplateActiveRole, setAutoTemplateActiveRole] = useState<string>('center');
 
   // Tile bitmaps per tileset
-  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number };
+  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string };
   const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
     grassland: [],
     desert: [],
@@ -528,6 +528,12 @@ export default function App() {
     setBoard(prev => {
       const next = new Map(prev);
       if (autoTiling && autoGroup) {
+        // if current cell is already part of a different group, clear it first to avoid mixed masks
+        const existing = next.get(key);
+        if (existing && existing.tileSet === tileSet && existing.tileIndex !== undefined) {
+          const inThisGroup = isGroupCell(existing, autoGroup, tileSet) || isRuleMember(tileSet, autoGroup, existing.tileIndex);
+          if (!inThisGroup) next.delete(key);
+        }
         // place autotile and update neighbors
         applyAutotileAt(next, i, j, tileSet, autoGroup);
         const neighbors = [ [i-1,j], [i,j+1], [i+1,j], [i,j-1] ] as Array<[number,number]>;
@@ -825,13 +831,16 @@ export default function App() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       const newTiles: TileBitmap[] = [];
+      const batchId = `batch-${Date.now()}`;
+      // spacer tile to visually separate previous tiles
+      newTiles.push({ id: `${tileSet}-spacer-${batchId}`, size: S, pixels: new Array<string | null>(S*S).fill(null), spacer: true, batchId });
       for (let sy = margin; sy + S <= img.height - margin + 0.0001; sy += S + spacing) {
         for (let sx = margin; sx + S <= img.width - margin + 0.0001; sx += S + spacing) {
           ctx.clearRect(0,0,S,S);
           ctx.drawImage(img, sx, sy, S, S, 0, 0, S, S);
           const idata = ctx.getImageData(0,0,S,S);
           const pixels = imageDataToPixels(idata);
-          newTiles.push({ id: `${tileSet}-import-${Date.now()}-${sx}-${sy}`, size: S, pixels, autoGroup: importGroup || undefined });
+          newTiles.push({ id: `${tileSet}-import-${Date.now()}-${sx}-${sy}`, size: S, pixels, autoGroup: importGroup || undefined, batchId });
         }
       }
       if (newTiles.length === 0) { alert('No tiles sliced. Check size/margin/spacing.'); return; }
@@ -1006,16 +1015,18 @@ export default function App() {
           <div className="tiles-grid">
             {tilesBySet[tileSet].map((t, idx) => {
               if (tilesSidebarGroupFilter && t.autoGroup !== tilesSidebarGroupFilter) return null;
+              const isSpacer = t.spacer;
               return (
-                <canvas
-                  key={t.id}
-                  width={t.size}
-                  height={t.size}
-                  style={{ width: 40, height: 40, imageRendering: 'pixelated', border: selectedTileIndex === idx ? '2px solid #e67e22' : '1px solid #bdc3c7' }}
-                  ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
-                  onClick={() => setSelectedTileIndex(idx)}
-                  title={t.autoGroup ? `${t.autoGroup} mask:${t.autoMask ?? '-'}` : 'tile'}
-                />
+                <div key={t.id} style={{ width: 40, height: 40, border: isSpacer ? 'none' : (selectedTileIndex === idx ? '2px solid #e67e22' : '1px solid #bdc3c7'), background: isSpacer ? 'transparent' : '#fff' }} onClick={() => { if (!isSpacer) setSelectedTileIndex(idx); }}>
+                  {!isSpacer && (
+                    <canvas
+                      width={t.size}
+                      height={t.size}
+                      style={{ width: 40, height: 40, imageRendering: 'pixelated' }}
+                      ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
+                    />
+                  )}
+                </div>
               );
             })}
           </div>

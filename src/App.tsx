@@ -52,6 +52,12 @@ export default function App() {
   // 3x3 template: role -> tileIndex
   const [autoTemplateBySet, setAutoTemplateBySet] = useState<Record<string, Record<string, Record<string, number>>>>({});
   const [autoTemplateActiveRole, setAutoTemplateActiveRole] = useState<string>('center');
+  // Import batch metadata (column count)
+  const [batchMetaBySet, setBatchMetaBySet] = useState<Record<string, Record<string, { cols: number }>>>({});
+  // Stamp selection (multi-tile brush)
+  const [stamp, setStamp] = useState<{ set: TileSetName; w: number; h: number; tiles: number[] } | null>(null);
+  const stampSelectingRef = useRef<{ active: boolean; batchId: string | null; start: number; cols: number } | null>(null);
+  const [stampSel, setStampSel] = useState<{ batchId: string | null; indices: number[] }>({ batchId: null, indices: [] });
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string };
@@ -527,7 +533,17 @@ export default function App() {
     const key = `${i},${j}`;
     setBoard(prev => {
       const next = new Map(prev);
-      if (autoTiling && autoGroup) {
+      if (stamp && tool === 'brush') {
+        // multi-tile stamp placement
+        let idx = 0;
+        for (let dy = 0; dy < stamp.h; dy++) {
+          for (let dx = 0; dx < stamp.w; dx++, idx++) {
+            const tIdx = stamp.tiles[idx];
+            const kk = `${i+dy},${j+dx}`;
+            next.set(kk, { tileSet: stamp.set, tileIndex: tIdx });
+          }
+        }
+      } else if (autoTiling && autoGroup) {
         // if current cell is already part of a different group, clear it first to avoid mixed masks
         const existing = next.get(key);
         if (existing && existing.tileSet === tileSet && existing.tileIndex !== undefined) {
@@ -834,6 +850,9 @@ export default function App() {
       const batchId = `batch-${Date.now()}`;
       // spacer tile to visually separate previous tiles
       newTiles.push({ id: `${tileSet}-spacer-${batchId}`, size: S, pixels: new Array<string | null>(S*S).fill(null), spacer: true, batchId });
+      // compute columns in the source spritesheet
+      const cols = Math.max(1, Math.floor((img.width - margin * 2 + spacing) / (S + spacing)));
+      setBatchMetaBySet(prev => ({ ...prev, [tileSet]: { ...(prev[tileSet] || {}), [batchId]: { cols } } }));
       for (let sy = margin; sy + S <= img.height - margin + 0.0001; sy += S + spacing) {
         for (let sx = margin; sx + S <= img.width - margin + 0.0001; sx += S + spacing) {
           ctx.clearRect(0,0,S,S);
@@ -1012,23 +1031,72 @@ export default function App() {
               ))}
             </select>
           </div>
-          <div className="tiles-grid">
-            {tilesBySet[tileSet].map((t, idx) => {
-              if (tilesSidebarGroupFilter && t.autoGroup !== tilesSidebarGroupFilter) return null;
-              const isSpacer = t.spacer;
-              return (
-                <div key={t.id} style={{ width: 40, height: 40, border: isSpacer ? 'none' : (selectedTileIndex === idx ? '2px solid #e67e22' : '1px solid #bdc3c7'), background: isSpacer ? 'transparent' : '#fff' }} onClick={() => { if (!isSpacer) setSelectedTileIndex(idx); }}>
-                  {!isSpacer && (
-                    <canvas
-                      width={t.size}
-                      height={t.size}
-                      style={{ width: 40, height: 40, imageRendering: 'pixelated' }}
-                      ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
-                    />
-                  )}
-                </div>
-              );
-            })}
+          <div className="tiles-grid"
+            onMouseDown={(e) => {
+              const target = e.target as HTMLElement;
+              const batchId = target.getAttribute('data-batch');
+              const idxAttr = target.getAttribute('data-idx');
+              if (!batchId || idxAttr === null) { stampSelectingRef.current = null; return; }
+              stampSelectingRef.current = { active: true, batchId, start: Number(idxAttr), cols: batchMetaBySet[tileSet]?.[batchId]?.cols || 999 };
+              setStampSel({ batchId, indices: [Number(idxAttr)] });
+            }}
+            onMouseUp={() => {
+              const s = stampSelectingRef.current;
+              if (!s || !s.active) return;
+              const { batchId, start, cols } = s;
+              const list = stampSel.indices.sort((a,b)=>a-b);
+              const min = list[0]; const max = list[list.length-1];
+              const w = (max % cols) - (min % cols) + 1;
+              const h = Math.floor(max/cols) - Math.floor(min/cols) + 1;
+              setStamp({ set: tileSet, w, h, tiles: list });
+              stampSelectingRef.current = null;
+            }}
+            onMouseMove={(e) => {
+              const s = stampSelectingRef.current; if (!s || !s.active) return;
+              const target = e.target as HTMLElement; const idxAttr = target.getAttribute('data-idx'); const batchId = target.getAttribute('data-batch');
+              if (!idxAttr || batchId !== s.batchId) return;
+              const a = s.start; const b = Number(idxAttr); const cols = s.cols;
+              const min = Math.min(a,b); const max = Math.max(a,b);
+              const minRow = Math.floor(min/cols); const maxRow = Math.floor(max/cols);
+              const minCol = min % cols; const maxCol = max % cols;
+              const indices: number[] = [];
+              for (let r=minRow; r<=maxRow; r++) for (let c=minCol; c<=maxCol; c++) indices.push(r*cols+c);
+              setStampSel({ batchId: s.batchId, indices });
+            }}
+          >
+            {(() => {
+              const rows: JSX.Element[] = [];
+              let current: string | null = null;
+              let buffer: JSX.Element[] = [];
+              tilesBySet[tileSet].forEach((t, idx) => {
+                const batchId = t.batchId || 'default';
+                const cols = batchMetaBySet[tileSet]?.[batchId]?.cols || 7;
+                if (t.spacer) {
+                  if (buffer.length) rows.push(<div key={`row-${rows.length}-${current}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${cols}, 44px)` }}>{buffer}</div>);
+                  rows.push(<div key={`sp-${rows.length}`} style={{ height: 6 }} />);
+                  current = batchId; buffer = []; return;
+                }
+                if (current !== batchId && buffer.length) {
+                  rows.push(<div key={`row-${rows.length}-${current}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${cols}, 44px)` }}>{buffer}</div>);
+                  buffer = []; current = batchId;
+                }
+                const isSel = selectedTileIndex === idx;
+                const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(t.indexWithinBatch as any);
+                buffer.push(
+                  <div key={t.id} data-batch={batchId} data-idx={t.indexWithinBatch as any} style={{ width: 40, height: 40, border: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : '1px solid #bdc3c7'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
+                    <canvas width={t.size} height={t.size} style={{ width: 40, height: 40, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
+                  </div>
+                );
+                // mark positional index inside batch
+                (tilesBySet[tileSet][idx] as any).indexWithinBatch = ((tilesBySet[tileSet][idx] as any).indexWithinBatch ?? buffer.length - 1);
+              });
+              if (buffer.length) {
+                const lastBatch = current || 'default';
+                const cols = batchMetaBySet[tileSet]?.[lastBatch]?.cols || 7;
+                rows.push(<div key={`row-last-${rows.length}-${lastBatch}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${cols}, 44px)` }}>{buffer}</div>);
+              }
+              return rows;
+            })()}
           </div>
         </div>
       )}

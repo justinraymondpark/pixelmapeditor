@@ -175,11 +175,18 @@ canvas {
 
 .tiles-grid {
   padding: 0.5rem;
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  display: block;
   overflow: auto;
 }
+
+.tiles-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 44px;
+  gap: 6px;
+}
+
+.tiles-row + .tiles-row { margin-top: 6px; }
 
 .editor-palette {
   display: flex;

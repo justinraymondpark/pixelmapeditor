@@ -57,3 +57,10 @@
 - Move tileset selector and Add Set into sidebar header
 - Remove redundant top-bar tile strip to reduce clutter
 
+## 0.2.0
+- Layers: add Layers panel (visible/lock/opacity/add/delete/reorder/rename)
+- Tools now operate per active layer; Clear affects active layer only
+- Fill tool (F) and Alt-eyedropper; B/E/F hotkeys added
+- Sidebar header adds "None" button for solid-color painting
+- Export/Import/LocalStorage updated to support layers (backwards compatible)
+

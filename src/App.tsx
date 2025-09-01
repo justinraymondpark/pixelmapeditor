@@ -15,12 +15,16 @@ type TileSetName = string;
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
-  const [tool, setTool] = useState<'brush' | 'eraser'>('brush');
+  type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity: number; cells: Map<string, BoardCell> };
+  const [tool, setTool] = useState<'brush' | 'eraser' | 'fill'>('brush');
   const [sets, setSets] = useState<string[]>(['grassland','desert','swamp','cyberpunk']);
   const [tileSet, setTileSet] = useState<TileSetName>('grassland');
   const [colorIndex, setColorIndex] = useState(0);
   const [grid, setGrid] = useState(true);
-  const [board, setBoard] = useState<Map<string, BoardCell>>(new Map());
+  const [layers, setLayers] = useState<Layer[]>([
+    { id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: new Map() }
+  ]);
+  const [activeLayerIndex, setActiveLayerIndex] = useState(0);
   const offsetRef = useRef({ x: 0, y: 0 });
   const scaleRef = useRef(1);
   const isPanningRef = useRef(false);
@@ -103,7 +107,7 @@ export default function App() {
   ];
   const [editorColor, setEditorColor] = useState<string>('#000000');
 
-  // Local storage hydration for tiles (with auto-tiling metadata)
+  // Local storage hydration for tiles and layers (with auto-tiling metadata)
   useEffect(() => {
     try {
       const raw = localStorage.getItem('pixelmapeditor.tiles');
@@ -122,6 +126,28 @@ export default function App() {
         const parsed = JSON.parse(rawSets);
         if (Array.isArray(parsed.sets)) setSets(parsed.sets);
         if (parsed.palettes && typeof parsed.palettes === 'object') setPaletteBySet(parsed.palettes);
+      }
+      const rawLayers = localStorage.getItem('pixelmapeditor.layers');
+      if (rawLayers) {
+        const parsed = JSON.parse(rawLayers);
+        if (Array.isArray(parsed)) {
+          const rebuilt: Layer[] = parsed.map((l: any) => ({
+            id: String(l.id || `layer-${Math.random()}`),
+            name: String(l.name || 'Layer'),
+            visible: !!l.visible,
+            locked: !!l.locked,
+            opacity: Number.isFinite(l.opacity) ? Number(l.opacity) : 1,
+            cells: new Map<string, BoardCell>(Object.entries(l.cells || {}))
+          }));
+          if (rebuilt.length > 0) setLayers(rebuilt);
+        } else if (parsed && typeof parsed === 'object' && parsed.board) {
+          // backward compat: single board -> one layer
+          const m = new Map<string, BoardCell>();
+          Object.keys(parsed.board).forEach(k => {
+            m.set(k, parsed.board[k]);
+          });
+          setLayers([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: m }]);
+        }
       }
       const rawRules = localStorage.getItem('pixelmapeditor.autorules');
       if (rawRules) {
@@ -145,6 +171,13 @@ export default function App() {
     });
     try { localStorage.setItem('pixelmapeditor.tiles', JSON.stringify(toStore)); } catch {}
   }, [tilesBySet]);
+
+  useEffect(() => {
+    try {
+      const layersOut = layers.map(l => ({ id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, cells: Object.fromEntries(l.cells.entries()) }));
+      localStorage.setItem('pixelmapeditor.layers', JSON.stringify(layersOut));
+    } catch {}
+  }, [layers]);
 
   useEffect(() => {
     try { localStorage.setItem('pixelmapeditor.sets', JSON.stringify({ sets, palettes: paletteBySet })); } catch {}
@@ -211,26 +244,33 @@ export default function App() {
         }
       }
 
-      board.forEach((cell, key) => {
-        const [iStr, jStr] = key.split(',');
-        const i = parseInt(iStr, 10);
-        const j = parseInt(jStr, 10);
-        const pos = isoToScreen(i,j);
-        if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
-          drawTileBitmapAt(ctx, cell.tileSet, cell.tileIndex, pos.x, pos.y);
-        } else if (cell.color) {
-          ctx.fillStyle = cell.color;
-          ctx.beginPath();
-          ctx.moveTo(pos.x, pos.y - tileH/2);
-          ctx.lineTo(pos.x + tileW/2, pos.y);
-          ctx.lineTo(pos.x, pos.y + tileH/2);
-          ctx.lineTo(pos.x - tileW/2, pos.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-          ctx.lineWidth = 1 / scaleRef.current;
-          ctx.stroke();
-        }
+      // Draw visible layers in order with opacity
+      layers.forEach(layer => {
+        if (!layer.visible) return;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+        layer.cells.forEach((cell, key) => {
+          const [iStr, jStr] = key.split(',');
+          const i = parseInt(iStr, 10);
+          const j = parseInt(jStr, 10);
+          const pos = isoToScreen(i,j);
+          if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
+            drawTileBitmapAt(ctx, cell.tileSet, cell.tileIndex, pos.x, pos.y);
+          } else if (cell.color) {
+            ctx.fillStyle = cell.color;
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y - tileH/2);
+            ctx.lineTo(pos.x + tileW/2, pos.y);
+            ctx.lineTo(pos.x, pos.y + tileH/2);
+            ctx.lineTo(pos.x - tileW/2, pos.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 1 / scaleRef.current;
+            ctx.stroke();
+          }
+        });
+        ctx.restore();
       });
 
       // Hover highlight
@@ -256,7 +296,7 @@ export default function App() {
 
     animationId = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animationId);
-  }, [board, grid]);
+  }, [layers, grid]);
 
   function isoToScreen(i: number, j: number) {
     const x = (i - j) * (tileW / 2);
@@ -472,6 +512,72 @@ export default function App() {
     Array.from(cache.keys()).forEach(k => { if (k.startsWith(keyPrefix)) cache.delete(k); });
   }
 
+  function getActiveLayer(): Layer {
+    return layers[Math.max(0, Math.min(layers.length - 1, activeLayerIndex))];
+  }
+
+  function setActiveLayerCells(updater: (prev: Map<string, BoardCell>) => Map<string, BoardCell>) {
+    setLayers(prev => {
+      const idx = Math.max(0, Math.min(prev.length - 1, activeLayerIndex));
+      const layer = prev[idx];
+      if (!layer || layer.locked) return prev;
+      const nextLayer: Layer = { ...layer, cells: updater(layer.cells) };
+      const next = [...prev];
+      next[idx] = nextLayer;
+      return next;
+    });
+  }
+
+  function sampleAt(i: number, j: number) {
+    const layer = getActiveLayer();
+    const cell = layer.cells.get(`${i},${j}`);
+    if (cell && cell.tileSet !== undefined && cell.tileIndex !== undefined) {
+      setTileSet(cell.tileSet);
+      setSelectedTileIndex(cell.tileIndex);
+    } else if (cell && cell.color) {
+      setSelectedTileIndex(null);
+      const pal = paletteBySet[tileSet] || builtinPalettes.grassland;
+      const ix = pal.indexOf(cell.color);
+      if (ix >= 0) setColorIndex(ix);
+    } else {
+      setSelectedTileIndex(null);
+    }
+  }
+
+  function cellsEqual(a?: BoardCell, b?: BoardCell): boolean {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.tileSet !== undefined || b.tileSet !== undefined) {
+      return a.tileSet === b.tileSet && a.tileIndex === b.tileIndex;
+    }
+    return a.color === b.color;
+  }
+
+  function floodFill(i: number, j: number, replacement: BoardCell) {
+    setActiveLayerCells(prev => {
+      const map = new Map(prev);
+      const key = `${i},${j}`;
+      const target = map.get(key);
+      if (cellsEqual(target, replacement)) return prev;
+      const q: Array<[number, number]> = [[i, j]];
+      const visited = new Set<string>();
+      const shouldFill = (ci: number, cj: number) => cellsEqual(map.get(`${ci},${cj}`), target);
+      while (q.length) {
+        const [ci, cj] = q.shift()!;
+        const ck = `${ci},${cj}`;
+        if (visited.has(ck)) continue;
+        visited.add(ck);
+        if (!shouldFill(ci, cj)) continue;
+        map.set(ck, { ...replacement });
+        q.push([ci - 1, cj]);
+        q.push([ci + 1, cj]);
+        q.push([ci, cj - 1]);
+        q.push([ci, cj + 1]);
+      }
+      return map;
+    });
+  }
+
   function drawTileBitmapAt(ctx: CanvasRenderingContext2D, tileSetName: TileSetName, tileIndex: number, x: number, y: number) {
     const off = getOffscreenForTile(tileSetName, tileIndex);
     if (!off) return;
@@ -498,10 +604,12 @@ export default function App() {
       lastPanPosRef.current = { x: e.clientX, y: e.clientY };
     } else {
       const { i, j } = screenToIso(e.clientX, e.clientY);
+      if (e.altKey) { sampleAt(i, j); return; }
       if (button === 2) {
         erase(i,j);
       } else {
         if (tool === 'brush') paint(i,j);
+        else if (tool === 'fill') fillAt(i,j);
         else erase(i,j);
       }
     }
@@ -517,6 +625,7 @@ export default function App() {
     } else if (e.buttons & 1) {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       if (tool === 'brush') paint(i,j);
+      else if (tool === 'fill') { /* no-op on drag */ }
       else erase(i,j);
     } else if (e.buttons & 2) {
       const { i, j } = screenToIso(e.clientX, e.clientY);
@@ -554,7 +663,7 @@ export default function App() {
 
   function paint(i: number, j: number) {
     const key = `${i},${j}`;
-    setBoard(prev => {
+    setActiveLayerCells(prev => {
       const next = new Map(prev);
       if (stamp && tool === 'brush') {
         // multi-tile stamp placement
@@ -590,12 +699,21 @@ export default function App() {
 
   function erase(i: number, j: number) {
     const key = `${i},${j}`;
-    setBoard(prev => {
+    setActiveLayerCells(prev => {
       if (!prev.has(key)) return prev;
       const next = new Map(prev);
       next.delete(key);
       return next;
     });
+  }
+
+  function fillAt(i: number, j: number) {
+    if (selectedTileIndex !== null) floodFill(i, j, { tileSet, tileIndex: selectedTileIndex });
+    else {
+      const pal = paletteBySet[tileSet] || builtinPalettes.grassland;
+      const color = pal[colorIndex % pal.length];
+      floodFill(i, j, { color });
+    }
   }
 
   function openEditor(mode: 'add' | 'edit') {
@@ -693,19 +811,22 @@ export default function App() {
   }
 
   function getExportPayload() {
-    const obj: Record<string, any> = {};
-    board.forEach((val, key) => {
-      if (val.tileSet !== undefined && val.tileIndex !== undefined) {
-        obj[key] = { type: 'tile', tileSet: val.tileSet, tileIndex: val.tileIndex };
-      } else if (val.color) {
-        obj[key] = { type: 'color', color: val.color };
-      }
+    const layersExport = layers.map(l => {
+      const cells: Record<string, any> = {};
+      l.cells.forEach((val, key) => {
+        if (val.tileSet !== undefined && val.tileIndex !== undefined) {
+          cells[key] = { type: 'tile', tileSet: val.tileSet, tileIndex: val.tileIndex };
+        } else if (val.color) {
+          cells[key] = { type: 'color', color: val.color };
+        }
+      });
+      return { id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, cells };
     });
     const tilesExport: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = {};
     (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
       tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
     });
-    return { board: obj, tiles: tilesExport };
+    return { layers: layersExport, tiles: tilesExport };
   }
 
   function importPayload(payload: any) {
@@ -717,20 +838,34 @@ export default function App() {
         rebuilt[setName] = arr.map((t: any, idx: number) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
       });
       setTilesBySet(rebuilt);
-      const map = new Map<string, BoardCell>();
-      const boardIn = payload.board || payload; // backward compat
-      Object.keys(boardIn).forEach(key => {
-        const cell = boardIn[key];
-        if (!cell) return;
-        if (cell.type === 'tile' && (['grassland','desert','swamp','cyberpunk'] as string[]).includes(cell.tileSet)) {
-          map.set(key, { tileSet: cell.tileSet, tileIndex: cell.tileIndex });
-        } else if (cell.type === 'color' && cell.color) {
-          map.set(key, { color: cell.color });
-        } else if (typeof cell === 'string') { // very old format
-          map.set(key, { color: cell });
-        }
-      });
-      setBoard(map);
+      if (Array.isArray(payload.layers)) {
+        const rebuiltLayers: Layer[] = payload.layers.map((l: any) => {
+          const map = new Map<string, BoardCell>();
+          const cellsIn = l.cells || {};
+          Object.keys(cellsIn).forEach(key => {
+            const cell = cellsIn[key]; if (!cell) return;
+            if (cell.type === 'tile' && cell.tileSet) map.set(key, { tileSet: cell.tileSet, tileIndex: cell.tileIndex });
+            else if (cell.type === 'color' && cell.color) map.set(key, { color: cell.color });
+          });
+          return { id: String(l.id || `layer-${Math.random()}`), name: String(l.name || 'Layer'), visible: !!l.visible, locked: !!l.locked, opacity: Number.isFinite(l.opacity) ? Number(l.opacity) : 1, cells: map };
+        });
+        if (rebuiltLayers.length > 0) setLayers(rebuiltLayers);
+      } else {
+        const map = new Map<string, BoardCell>();
+        const boardIn = payload.board || payload; // backward compat
+        Object.keys(boardIn).forEach(key => {
+          const cell = boardIn[key];
+          if (!cell) return;
+          if (cell.type === 'tile' && (['grassland','desert','swamp','cyberpunk'] as string[]).includes(cell.tileSet)) {
+            map.set(key, { tileSet: cell.tileSet, tileIndex: cell.tileIndex });
+          } else if (cell.type === 'color' && cell.color) {
+            map.set(key, { color: cell.color });
+          } else if (typeof cell === 'string') { // very old format
+            map.set(key, { color: cell });
+          }
+        });
+        setLayers([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: map }]);
+      }
       offscreenCacheRef.current.clear();
     } catch {}
   }
@@ -827,6 +962,19 @@ export default function App() {
     return () => canvas.removeEventListener('contextmenu', handleContextMenu);
   }, []);
 
+  // Hotkeys
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if (e.key === 'b' || e.key === 'B') setTool('brush');
+      else if (e.key === 'e' || e.key === 'E') setTool('eraser');
+      else if (e.key === 'f' || e.key === 'F') setTool('fill');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // ---- Tileset import helpers ----
   function openImportModal() { setImportOpen(true); }
   function closeImportModal() { setImportOpen(false); importFileRef.current = null; }
@@ -901,8 +1049,9 @@ export default function App() {
   return (
     <div>
       <div className="toolbar">
-        <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush</button>
-        <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser</button>
+        <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush (B)</button>
+        <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser (E)</button>
+        <button className={tool === 'fill' ? 'active' : ''} onClick={() => setTool('fill')}>Fill (F)</button>
         {/* moved tileset select & Add Set into sidebar header */}
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
         <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
@@ -936,13 +1085,13 @@ export default function App() {
           <button onClick={openLoadModal}>Load Cloud</button>
         </div>
         <button onClick={() => setGrid(g => !g)}>{grid ? 'Hide Grid' : 'Show Grid'}</button>
-        <button onClick={() => setBoard(new Map())}>Clear</button>
+        <button onClick={() => setActiveLayerCells(() => new Map())}>Clear Layer</button>
         <button onClick={exportJSON}>Export JSON</button>
         <button onClick={exportPNG}>Export PNG</button>
       </div>
       <canvas
         ref={canvasRef}
-        style={{ width: '100vw', height: '100vh', display:'block', cursor: tool === 'eraser' ? 'crosshair' : 'pointer' }}
+        style={{ width: '100vw', height: '100vh', display:'block', cursor: tool === 'eraser' ? 'crosshair' : 'pointer', marginLeft: 260, marginRight: tilesSidebarOpen ? 420 : 0 }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1029,6 +1178,7 @@ export default function App() {
               setPaletteBySet(prev => ({ ...prev, [name]: [...builtinPalettes.grassland] }));
               setTileSet(name);
             }}>Add Set</button>
+            <button onClick={() => setSelectedTileIndex(null)} title="Use solid color" className={selectedTileIndex === null ? 'active' : ''}>None</button>
             <select value={tilesSidebarGroupFilter} onChange={e => setTilesSidebarGroupFilter(e.target.value)}>
               <option value="">All groups</option>
               {Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any).map((g: string) => (
@@ -1111,6 +1261,32 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Layers panel */}
+      <div className="layers-panel">
+        <div className="layers-header">
+          <div>Layers</div>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => {
+            setLayers(prev => [...prev, { id: `layer-${Date.now()}`, name: `Layer ${prev.length+1}`, visible: true, locked: false, opacity: 1, cells: new Map() }]);
+            setActiveLayerIndex(layers.length);
+          }}>+ Layer</button>
+        </div>
+        <div className="layers-list">
+          {layers.map((l, idx) => (
+            <div key={l.id} className={`layer-item ${idx === activeLayerIndex ? 'active' : ''}`} onClick={() => setActiveLayerIndex(idx)}>
+              <input type="checkbox" checked={l.visible} onChange={e => setLayers(prev => { const n=[...prev]; n[idx] = { ...n[idx], visible: e.target.checked }; return n; })} title="Visible" />
+              <input type="checkbox" checked={l.locked} onChange={e => setLayers(prev => { const n=[...prev]; n[idx] = { ...n[idx], locked: e.target.checked }; return n; })} title="Lock" />
+              <span style={{ flex: 1 }}>{l.name}</span>
+              <input type="range" min={0} max={1} step={0.05} value={l.opacity} onChange={e => setLayers(prev => { const n=[...prev]; n[idx] = { ...n[idx], opacity: parseFloat(e.target.value) }; return n; })} title="Opacity" />
+              <button onClick={(ev) => { ev.stopPropagation(); const name = prompt('Layer name?', l.name); if (name) setLayers(prev => { const n=[...prev]; n[idx] = { ...n[idx], name }; return n; }); }}>Rename</button>
+              <button onClick={(ev) => { ev.stopPropagation(); if (idx>0) setLayers(prev => { const n=[...prev]; const t=n[idx]; n[idx]=n[idx-1]; n[idx-1]=t; return n; }); }}>↑</button>
+              <button onClick={(ev) => { ev.stopPropagation(); if (idx<layers.length-1) setLayers(prev => { const n=[...prev]; const t=n[idx]; n[idx]=n[idx+1]; n[idx+1]=t; return n; }); }}>↓</button>
+              <button onClick={(ev) => { ev.stopPropagation(); if (layers.length<=1) return; setLayers(prev => { const n=[...prev]; n.splice(idx,1); return n; }); setActiveLayerIndex(a => Math.max(0, Math.min(a, layers.length-2))); }}>🗑</button>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {loadModalOpen && (
         <div className="modal-backdrop" onClick={() => setLoadModalOpen(false)}>

@@ -66,6 +66,16 @@ export default function App() {
   const [savedStampsBySet, setSavedStampsBySet] = useState<Record<string, SavedStamp[]>>({});
   const [selectedStampId, setSelectedStampId] = useState<string>('');
   const [stampName, setStampName] = useState<string>('');
+  const [stampFlipX, setStampFlipX] = useState(false);
+  const [stampFlipY, setStampFlipY] = useState(false);
+  const [stampRotate, setStampRotate] = useState<0|90|180|270>(0);
+  // Stamp Builder modal state
+  const [stampBuilderOpen, setStampBuilderOpen] = useState(false);
+  const [stampBuilderRows, setStampBuilderRows] = useState<number>(3);
+  const [stampBuilderCols, setStampBuilderCols] = useState<number>(3);
+  const [stampBuilderGrid, setStampBuilderGrid] = useState<number[]>(Array(9).fill(-1));
+  const [stampBuilderActive, setStampBuilderActive] = useState<number>(0);
+  const [stampBuilderName, setStampBuilderName] = useState<string>('');
   // Mapping from rendered grid positions to global tile indices per set/batch
   const batchLayoutRef = useRef<Record<string, Record<string, { cols: number; gridToGlobal: number[] }>>>({});
   // Tileset zoom (thumbnail size in px)
@@ -1172,6 +1182,7 @@ export default function App() {
             <option key={idx} value={g as string}>{g ? g : 'No group'}</option>
           ))}
         </select>
+        <button onClick={() => setStampBuilderOpen(true)}>Stamp Builder</button>
         <button onClick={() => setTilesSidebarOpen(o => !o)}>{tilesSidebarOpen ? 'Hide Tiles' : 'Show Tiles'}</button>
         <select value={editorTileSize} onChange={e => { const s = parseInt(e.target.value, 10); setEditorTileSize(s); setEditorPixels(Array(s * s).fill(null)); }}>
           {[8,16,24,32,48,64].map(s => <option key={s} value={s}>{s}x{s}</option>)}
@@ -1612,6 +1623,107 @@ export default function App() {
                           }
                         }}>
                           <canvas width={t.size} height={t.size} style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }} ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }} />
+                        </div>
+                      );
+                      colIndex = (colIndex + 1) % colCount;
+                    });
+                    flushRow();
+                    return rows;
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {stampBuilderOpen && (
+        <div className="modal-backdrop" onClick={() => setStampBuilderOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">Stamp Builder – {tileSet}</div>
+            <div className="modal-tools" style={{ gap: '0.75rem', flexWrap: 'wrap' as const }}>
+              <label>Rows <input type="number" min={1} max={12} value={stampBuilderRows} onChange={e => {
+                const r = Math.max(1, Math.min(12, parseInt(e.target.value,10)||3));
+                setStampBuilderRows(r);
+                setStampBuilderGrid(prev => {
+                  const c = stampBuilderCols;
+                  const next = new Array(r * c).fill(-1);
+                  const minRC = Math.min(prev.length, next.length);
+                  for (let i=0;i<minRC;i++) next[i]=prev[i];
+                  return next;
+                });
+              }} /></label>
+              <label>Cols <input type="number" min={1} max={12} value={stampBuilderCols} onChange={e => {
+                const c = Math.max(1, Math.min(12, parseInt(e.target.value,10)||3));
+                setStampBuilderCols(c);
+                setStampBuilderGrid(prev => {
+                  const r = stampBuilderRows;
+                  const next = new Array(r * c).fill(-1);
+                  const minRC = Math.min(prev.length, next.length);
+                  for (let i=0;i<minRC;i++) next[i]=prev[i];
+                  return next;
+                });
+              }} /></label>
+              <input type="text" placeholder="Stamp name" value={stampBuilderName} onChange={e => setStampBuilderName(e.target.value)} />
+              {stampBuilderRows === 3 && stampBuilderCols === 3 && autoTemplateBySet[tileSet]?.[autoConfigGroup] && (
+                <button onClick={() => {
+                  const tpl = autoTemplateBySet[tileSet][autoConfigGroup];
+                  const roles = ['top-left','top','top-right','left','center','right','bottom-left','bottom','bottom-right'];
+                  const arr = new Array(9).fill(-1);
+                  roles.forEach((role, idx) => {
+                    const tIdx = tpl[role];
+                    if (typeof tIdx === 'number') arr[idx] = tIdx;
+                  });
+                  setStampBuilderGrid(arr);
+                }}>Prefill 3x3</button>
+              )}
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setStampBuilderOpen(false)}>Close</button>
+              <button onClick={() => setStampBuilderGrid(new Array(stampBuilderRows * stampBuilderCols).fill(-1))}>Clear</button>
+              <button onClick={() => {
+                if (stampBuilderGrid.some(v => v < 0)) { alert('Assign all cells first'); return; }
+                const name = (stampBuilderName||'').trim() || `${stampBuilderRows}x${stampBuilderCols} Stamp`;
+                setSavedStampsBySet(prev => {
+                  const list = prev[tileSet] ? [...prev[tileSet]] : [];
+                  list.push({ id: `stamp-${Date.now()}`, name, set: tileSet, w: stampBuilderCols, h: stampBuilderRows, tiles: [...stampBuilderGrid] });
+                  return { ...prev, [tileSet]: list };
+                });
+                setStampBuilderOpen(false);
+                setStampBuilderName('');
+              }}>Save</button>
+            </div>
+            <div className="modal-canvas" style={{ display: 'block' }}>
+              <div style={{ padding: '1rem' }}>
+                <div style={{ display:'grid', gridTemplateColumns: `repeat(${stampBuilderCols}, ${tileThumb*2}px)`, gap: 6, justifyContent:'center' }}>
+                  {Array.from({ length: stampBuilderRows * stampBuilderCols }, (_, idx) => (
+                    <div key={idx} style={{ width: tileThumb*2, height: tileThumb*2, border: stampBuilderActive === idx ? '2px solid #e67e22' : '1px solid #bdc3c7', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setStampBuilderActive(idx)}>
+                      {stampBuilderGrid[idx] >= 0 ? (
+                        <canvas width={editorTileSize} height={editorTileSize} style={{ width: tileThumb*2-6, height: tileThumb*2-6, imageRendering:'pixelated' }} ref={(el)=>{ const tIdx = stampBuilderGrid[idx]; if (el) { const t = (tilesBySet[tileSet]||[])[tIdx]; if (t) renderPixelsToCanvas(el, t.pixels, t.size); } }} />
+                      ) : (
+                        <span style={{ fontSize: 10 }}>{Math.floor(idx / stampBuilderCols)},{idx % stampBuilderCols}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 12, fontSize: 12, textAlign:'center' }}>Pick a cell, then click a tile below to assign it.</div>
+                <div style={{ marginTop: 10 }}>
+                  {(() => {
+                    const rows: JSX.Element[] = [];
+                    let currentBatch: string | null = null;
+                    let colCount = 7;
+                    let colIndex = 0;
+                    let currentRow: JSX.Element[] = [];
+                    const flushRow = () => {
+                      if (!currentRow.length || !currentBatch) return;
+                      rows.push(<div key={`sb-row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${Math.max(colCount, tilesPerRow)}, ${tileThumb}px)` }}>{currentRow}</div>);
+                      currentRow = []; colIndex = 0;
+                    };
+                    (tilesBySet[tileSet] || []).forEach((t, idx) => {
+                      if (t.spacer) { flushRow(); rows.push(<div key={`sb-sp-${rows.length}`} style={{ height: 8 }} />); currentBatch = null; return; }
+                      const batchId = t.batchId || 'default';
+                      if (batchId !== currentBatch) { flushRow(); currentBatch = batchId; colCount = batchMetaBySet[tileSet]?.[batchId]?.cols || 12; }
+                      currentRow.push(
+                        <div key={`sb-${t.id}`} style={{ width: tileThumb, height: tileThumb, background: '#fff' }} onClick={() => setStampBuilderGrid(prev => { const n=[...prev]; n[stampBuilderActive]=idx; return n; })}>
+                          <canvas width={t.size} height={t.size} style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
                         </div>
                       );
                       colIndex = (colIndex + 1) % colCount;

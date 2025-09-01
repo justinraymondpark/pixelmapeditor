@@ -231,6 +231,13 @@ export default function App() {
     });
   }, [sets]);
 
+  // Ensure active tileset is valid after hydration/renames
+  useEffect(() => {
+    if (sets.length && !sets.includes(tileSet)) {
+      setTileSet(sets[0] as TileSetName);
+    }
+  }, [sets, tileSet]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;

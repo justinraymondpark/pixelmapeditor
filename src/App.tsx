@@ -66,6 +66,8 @@ export default function App() {
   const [savedStampsBySet, setSavedStampsBySet] = useState<Record<string, SavedStamp[]>>({});
   const [selectedStampId, setSelectedStampId] = useState<string>('');
   const [stampName, setStampName] = useState<string>('');
+  // Mapping from rendered grid positions to global tile indices per set/batch
+  const batchLayoutRef = useRef<Record<string, Record<string, { cols: number; gridToGlobal: number[] }>>>({});
   // Tileset zoom (thumbnail size in px)
   const [tileThumb, setTileThumb] = useState<number>(16);
   const [tilesPerRow, setTilesPerRow] = useState<number>(25);

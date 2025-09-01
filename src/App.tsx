@@ -756,7 +756,7 @@ export default function App() {
           // pick among visible filtered tiles from current tileset
           const needle = tileSearch.trim().toLowerCase();
           const candidates: number[] = [];
-          tilesBySet[tileSet].forEach((t, idx) => {
+          (tilesBySet[tileSet] || []).forEach((t, idx) => {
             if (t.spacer) return;
             if (tilesSidebarGroupFilter && t.autoGroup !== tilesSidebarGroupFilter) return;
             if (needle) {
@@ -1157,7 +1157,7 @@ export default function App() {
         {/* moved tileset select & Add Set into sidebar header */}
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
         <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
-          {([''] as string[]).concat(Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any)).map((g, idx) => (
+          {([''] as string[]).concat(Array.from(new Set((tilesBySet[tileSet] || []).map(t => t.autoGroup).filter(Boolean)) as any)).map((g, idx) => (
             <option key={idx} value={g as string}>{g ? g : 'No group'}</option>
           ))}
         </select>
@@ -1235,7 +1235,7 @@ export default function App() {
                   <button key={setName} className={editorActiveSet === setName ? 'active' : ''} onClick={() => setEditorActiveSet(setName)}>{setName}</button>
                 ))}
                 <div className="sets-tiles">
-                  {tilesBySet[editorActiveSet].map((t, idx) => (
+                  {(tilesBySet[editorActiveSet] || []).map((t, idx) => (
                     <canvas
                       key={t.id}
                       width={editorTileSize}
@@ -1288,7 +1288,7 @@ export default function App() {
             </label>
             <select value={tilesSidebarGroupFilter} onChange={e => setTilesSidebarGroupFilter(e.target.value)}>
               <option value="">All groups</option>
-              {Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any).map((g: string) => (
+              {Array.from(new Set((tilesBySet[tileSet] || []).map(t => t.autoGroup).filter(Boolean)) as any).map((g: string) => (
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
@@ -1351,7 +1351,7 @@ export default function App() {
                 currentRow = []; colIndex = 0;
               };
               const needle = tileSearch.trim().toLowerCase();
-              tilesBySet[tileSet].forEach((t, idx) => {
+              (tilesBySet[tileSet] || []).forEach((t, idx) => {
                 if (t.spacer) { flushRow(); rows.push(<div key={`sp-${rows.length}`} style={{ height: 8 }} />); currentBatch = null; return; }
                 if (needle) {
                   const n = (t.name || '').toLowerCase();
@@ -1576,7 +1576,7 @@ export default function App() {
                       rows.push(<div key={`cfg-row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${Math.max(colCount, tilesPerRow)}, ${tileThumb}px)` }}>{currentRow}</div>);
                       currentRow = []; colIndex = 0;
                     };
-                    tilesBySet[tileSet]?.forEach((t, idx) => {
+                    (tilesBySet[tileSet] || []).forEach((t, idx) => {
                       if (t.spacer) { flushRow(); rows.push(<div key={`cfg-sp-${rows.length}`} style={{ height: 8 }} />); currentBatch = null; return; }
                       const batchId = t.batchId || 'default';
                       if (batchId !== currentBatch) { flushRow(); currentBatch = batchId; colCount = batchMetaBySet[tileSet]?.[batchId]?.cols || 12; }

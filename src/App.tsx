@@ -15,14 +15,14 @@ type TileSetName = string;
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
-  type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity: number; cells: Map<string, BoardCell> };
+  type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity: number; cells: Map<string, BoardCell>; props?: Record<string, string> };
   const [tool, setTool] = useState<'brush' | 'eraser' | 'fill'>('brush');
   const [sets, setSets] = useState<string[]>(['grassland','desert','swamp','cyberpunk']);
   const [tileSet, setTileSet] = useState<TileSetName>('grassland');
   const [colorIndex, setColorIndex] = useState(0);
   const [grid, setGrid] = useState(true);
   const [layers, setLayers] = useState<Layer[]>([
-    { id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: new Map() }
+    { id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: new Map(), props: {} }
   ]);
   const [activeLayerIndex, setActiveLayerIndex] = useState(0);
   const offsetRef = useRef({ x: 0, y: 0 });
@@ -62,6 +62,10 @@ export default function App() {
   const [stamp, setStamp] = useState<{ set: TileSetName; w: number; h: number; tiles: number[] } | null>(null);
   const stampSelectingRef = useRef<{ active: boolean; batchId: string | null; start: number; cols: number } | null>(null);
   const [stampSel, setStampSel] = useState<{ batchId: string | null; indices: number[] }>({ batchId: null, indices: [] });
+  type SavedStamp = { id: string; name: string; set: TileSetName; w: number; h: number; tiles: number[] };
+  const [savedStampsBySet, setSavedStampsBySet] = useState<Record<string, SavedStamp[]>>({});
+  const [selectedStampId, setSelectedStampId] = useState<string>('');
+  const [stampName, setStampName] = useState<string>('');
   // Tileset zoom (thumbnail size in px)
   const [tileThumb, setTileThumb] = useState<number>(16);
   const [tilesPerRow, setTilesPerRow] = useState<number>(25);
@@ -140,7 +144,8 @@ export default function App() {
             visible: !!l.visible,
             locked: !!l.locked,
             opacity: Number.isFinite(l.opacity) ? Number(l.opacity) : 1,
-            cells: new Map<string, BoardCell>(Object.entries(l.cells || {}))
+            cells: new Map<string, BoardCell>(Object.entries(l.cells || {})),
+            props: (l.props && typeof l.props === 'object') ? l.props : {}
           }));
           if (rebuilt.length > 0) setLayers(rebuilt);
         } else if (parsed && typeof parsed === 'object' && parsed.board) {
@@ -149,8 +154,13 @@ export default function App() {
           Object.keys(parsed.board).forEach(k => {
             m.set(k, parsed.board[k]);
           });
-          setLayers([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: m }]);
+          setLayers([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: m, props: {} }]);
         }
+      }
+      const rawStamps = localStorage.getItem('pixelmapeditor.stamps');
+      if (rawStamps) {
+        const parsed = JSON.parse(rawStamps);
+        if (parsed && typeof parsed === 'object') setSavedStampsBySet(parsed);
       }
       const rawRules = localStorage.getItem('pixelmapeditor.autorules');
       if (rawRules) {
@@ -177,10 +187,14 @@ export default function App() {
 
   useEffect(() => {
     try {
-      const layersOut = layers.map(l => ({ id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, cells: Object.fromEntries(l.cells.entries()) }));
+      const layersOut = layers.map(l => ({ id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, props: l.props || {}, cells: Object.fromEntries(l.cells.entries()) }));
       localStorage.setItem('pixelmapeditor.layers', JSON.stringify(layersOut));
     } catch {}
   }, [layers]);
+
+  useEffect(() => {
+    try { localStorage.setItem('pixelmapeditor.stamps', JSON.stringify(savedStampsBySet)); } catch {}
+  }, [savedStampsBySet]);
 
   useEffect(() => {
     try { localStorage.setItem('pixelmapeditor.sets', JSON.stringify({ sets, palettes: paletteBySet })); } catch {}
@@ -843,13 +857,13 @@ export default function App() {
           cells[key] = { type: 'color', color: val.color };
         }
       });
-      return { id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, cells };
+      return { id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, props: l.props || {}, cells };
     });
-    const tilesExport: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = {};
+    const tilesExport: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; name?: string; tags?: string[] }[]> = {};
     (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
-      tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
+      tilesExport[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask, name: t.name, tags: t.tags }));
     });
-    return { layers: layersExport, tiles: tilesExport };
+    return { layers: layersExport, tiles: tilesExport, stamps: savedStampsBySet };
   }
 
   function importPayload(payload: any) {
@@ -858,9 +872,10 @@ export default function App() {
       const rebuilt = emptyTilesBySet();
       (Object.keys(rebuilt) as TileSetName[]).forEach(setName => {
         const arr = tilesIn[setName] || [];
-        rebuilt[setName] = arr.map((t: any, idx: number) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
+        rebuilt[setName] = arr.map((t: any, idx: number) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask, name: t.name, tags: t.tags }));
       });
       setTilesBySet(rebuilt);
+      if (payload.stamps && typeof payload.stamps === 'object') setSavedStampsBySet(payload.stamps);
       if (Array.isArray(payload.layers)) {
         const rebuiltLayers: Layer[] = payload.layers.map((l: any) => {
           const map = new Map<string, BoardCell>();
@@ -870,7 +885,7 @@ export default function App() {
             if (cell.type === 'tile' && cell.tileSet) map.set(key, { tileSet: cell.tileSet, tileIndex: cell.tileIndex });
             else if (cell.type === 'color' && cell.color) map.set(key, { color: cell.color });
           });
-          return { id: String(l.id || `layer-${Math.random()}`), name: String(l.name || 'Layer'), visible: !!l.visible, locked: !!l.locked, opacity: Number.isFinite(l.opacity) ? Number(l.opacity) : 1, cells: map };
+          return { id: String(l.id || `layer-${Math.random()}`), name: String(l.name || 'Layer'), visible: !!l.visible, locked: !!l.locked, opacity: Number.isFinite(l.opacity) ? Number(l.opacity) : 1, props: (l.props && typeof l.props==='object') ? l.props : {}, cells: map };
         });
         if (rebuiltLayers.length > 0) setLayers(rebuiltLayers);
       } else {
@@ -887,7 +902,7 @@ export default function App() {
             map.set(key, { color: cell });
           }
         });
-        setLayers([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: map }]);
+        setLayers([{ id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, props: {}, cells: map }]);
       }
       offscreenCacheRef.current.clear();
     } catch {}
@@ -1277,6 +1292,7 @@ export default function App() {
               let colCount = 7;
               let colIndex = 0;
               let currentRow: JSX.Element[] = [];
+              const gridMap: number[] = [];
               const flushRow = () => {
                 if (!currentRow.length || !currentBatch) return;
                 rows.push(<div key={`row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${Math.max(colCount, tilesPerRow)}, ${tileThumb}px)` }}>{currentRow}</div>);
@@ -1294,6 +1310,7 @@ export default function App() {
                 if (batchId !== currentBatch) { flushRow(); currentBatch = batchId; colCount = batchMetaBySet[tileSet]?.[batchId]?.cols || 12; }
                 const isSel = selectedTileIndex === idx;
                 const inDragSel = (stampSel.batchId === batchId) && stampSel.indices.includes(colIndex);
+                gridMap.push(idx);
                 currentRow.push(
                   <div key={t.id} data-batch={batchId} data-idx={colIndex} style={{ width: tileThumb, height: tileThumb, outline: isSel ? '2px solid #e67e22' : (inDragSel ? '2px solid #2c3e50' : 'none'), background: '#fff' }} onClick={() => setSelectedTileIndex(idx)}>
                     <canvas width={t.size} height={t.size} style={{ width: tileThumb, height: tileThumb, imageRendering: 'pixelated' }} ref={(el) => { if (el) renderPixelsToCanvas(el, t.pixels, t.size); }} />
@@ -1302,6 +1319,10 @@ export default function App() {
                 colIndex = (colIndex + 1) % colCount;
               });
               flushRow();
+              // store mapping for this render
+              const bySet = batchLayoutRef.current[tileSet] || {} as any;
+              bySet['current'] = { cols: Math.max(colCount, tilesPerRow), gridToGlobal: gridMap };
+              batchLayoutRef.current[tileSet] = bySet;
               return rows;
             })()}
           </div>
@@ -1314,7 +1335,7 @@ export default function App() {
           <div>Layers</div>
           <div style={{ flex: 1 }} />
           <button onClick={() => {
-            setLayers(prev => [...prev, { id: `layer-${Date.now()}`, name: `Layer ${prev.length+1}`, visible: true, locked: false, opacity: 1, cells: new Map() }]);
+            setLayers(prev => [...prev, { id: `layer-${Date.now()}`, name: `Layer ${prev.length+1}`, visible: true, locked: false, opacity: 1, cells: new Map(), props: {} }]);
             setActiveLayerIndex(layers.length);
           }}>+ Layer</button>
         </div>
@@ -1331,6 +1352,68 @@ export default function App() {
               <button onClick={(ev) => { ev.stopPropagation(); if (layers.length<=1) return; setLayers(prev => { const n=[...prev]; n.splice(idx,1); return n; }); setActiveLayerIndex(a => Math.max(0, Math.min(a, layers.length-2))); }}>🗑</button>
             </div>
           ))}
+          {layers[activeLayerIndex] && (
+            <div style={{ marginTop: 8, padding: 8, border: '1px solid #bdc3c7', background: '#fff', display:'grid', gap:6 }}>
+              <div style={{ fontWeight: 600 }}>Layer Properties</div>
+              {Object.entries(layers[activeLayerIndex].props || {}).map(([k,v]) => (
+                <div key={k} style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:6 }}>
+                  <input value={k} readOnly />
+                  <input value={v} onChange={e => setLayers(prev => { const n=[...prev]; const p={...(n[activeLayerIndex].props||{})}; p[k]=e.target.value; n[activeLayerIndex]={...n[activeLayerIndex], props:p}; return n; })} />
+                  <button onClick={() => setLayers(prev => { const n=[...prev]; const p={...(n[activeLayerIndex].props||{})}; delete p[k]; n[activeLayerIndex]={...n[activeLayerIndex], props:p}; return n; })}>Delete</button>
+                </div>
+              ))}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:6 }}>
+                <input placeholder="key" id="layer-prop-key" />
+                <input placeholder="value" id="layer-prop-val" />
+                <button onClick={() => {
+                  const keyInput = document.getElementById('layer-prop-key') as HTMLInputElement | null;
+                  const valInput = document.getElementById('layer-prop-val') as HTMLInputElement | null;
+                  const k = (keyInput?.value||'').trim(); const v = (valInput?.value||'').trim();
+                  if (!k) return;
+                  setLayers(prev => { const n=[...prev]; const p={...(n[activeLayerIndex].props||{})}; p[k]=v; n[activeLayerIndex]={...n[activeLayerIndex], props:p}; return n; });
+                  if (keyInput) keyInput.value=''; if (valInput) valInput.value='';
+                }}>Add</button>
+              </div>
+            </div>
+          )}
+          {stamp && (
+            <div style={{ marginTop: 8, padding: 8, border: '1px solid #bdc3c7', background: '#fff', display:'grid', gap:6 }}>
+              <div style={{ fontWeight: 600 }}>Save Stamp</div>
+              <input placeholder="Stamp name" value={stampName} onChange={e => setStampName(e.target.value)} />
+              <button onClick={() => {
+                const name = (stampName||'').trim() || `Stamp ${Date.now()}`;
+                setSavedStampsBySet(prev => {
+                  const arr = prev[tileSet] ? [...prev[tileSet]] : [];
+                  const id = `stamp-${Date.now()}`;
+                  arr.push({ id, name, set: stamp.set, w: stamp.w, h: stamp.h, tiles: [...stamp.tiles] });
+                  return { ...prev, [tileSet]: arr };
+                });
+                setStampName('');
+              }}>Save Current Selection</button>
+              {savedStampsBySet[tileSet]?.length ? (
+                <div style={{ display:'grid', gap:6 }}>
+                  <div style={{ fontWeight: 600 }}>Saved Stamps</div>
+                  <select value={selectedStampId} onChange={e => setSelectedStampId(e.target.value)}>
+                    <option value="">Select</option>
+                    {savedStampsBySet[tileSet].map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button onClick={() => {
+                      const s = (savedStampsBySet[tileSet]||[]).find(s=>s.id===selectedStampId); if (!s) return;
+                      setStamp({ set: s.set, w: s.w, h: s.h, tiles: [...s.tiles] });
+                    }}>Use</button>
+                    <button onClick={() => {
+                      setSavedStampsBySet(prev => {
+                        const arr = (prev[tileSet]||[]).filter(s=>s.id!==selectedStampId);
+                        return { ...prev, [tileSet]: arr };
+                      });
+                      setSelectedStampId('');
+                    }}>Delete</button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
 

@@ -74,3 +74,7 @@
 - Canvas auto-margins from live panel widths; sidebar header wraps
 - Prevent overflow and overlap across common viewport sizes
 
+## 0.2.3
+- Stamp Library: save/use/delete stamps; persisted and exported
+- Layer Properties: key/value per layer; persisted and exported
+

@@ -69,3 +69,8 @@
 - Randomize brush toggle uses current filters to pick variants
 - Status bar shows tool, active layer and tile coordinates
 
+## 0.2.2
+- Responsive UI: clamp() widths for sidebars; statusbar/toolbar measured heights
+- Canvas auto-margins from live panel widths; sidebar header wraps
+- Prevent overflow and overlap across common viewport sizes
+

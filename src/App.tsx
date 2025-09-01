@@ -1070,8 +1070,20 @@ export default function App() {
   }
 
   return (
-    <div>
-      <div className="toolbar">
+    <div style={{
+      // provide CSS vars for responsive panels
+      // values updated via JS below if needed
+      // fallback matches CSS defaults
+      ['--toolbar-h' as any]: '56px',
+      ['--statusbar-h' as any]: '22px',
+      ['--left-w-cur' as any]: '260px',
+      ['--right-w-cur' as any]: tilesSidebarOpen ? '420px' : '0px'
+    } as React.CSSProperties}>
+      <div className="toolbar" ref={(el)=>{
+        if (!el) return;
+        const h = el.getBoundingClientRect().height;
+        el.parentElement?.style.setProperty('--toolbar-h', `${Math.round(h)}px`);
+      }}>
         <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush (B)</button>
         <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser (E)</button>
         <button className={tool === 'fill' ? 'active' : ''} onClick={() => setTool('fill')}>Fill (F)</button>
@@ -1114,7 +1126,8 @@ export default function App() {
       </div>
       <canvas
         ref={canvasRef}
-        style={{ width: '100vw', height: '100vh', display:'block', cursor: tool === 'eraser' ? 'crosshair' : 'pointer', marginLeft: 260, marginRight: tilesSidebarOpen ? 420 : 0 }}
+        className="board-canvas"
+        style={{ cursor: tool === 'eraser' ? 'crosshair' : 'pointer' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1455,7 +1468,15 @@ export default function App() {
       )}
 
       {/* Status bar */}
-      <div className="statusbar">
+      <div className="statusbar" ref={(el)=>{
+        if (!el) return;
+        const h = el.getBoundingClientRect().height;
+        el.parentElement?.style.setProperty('--statusbar-h', `${Math.round(h)}px`);
+        const left = document.querySelector('.layers-panel') as HTMLElement | null;
+        const right = document.querySelector('.tiles-sidebar') as HTMLElement | null;
+        if (left) el.parentElement?.style.setProperty('--left-w-cur', `${Math.round(left.getBoundingClientRect().width)}px`);
+        if (right) el.parentElement?.style.setProperty('--right-w-cur', `${Math.round(right.getBoundingClientRect().width)}px`);
+      }}>
         <div>Tool: {tool}</div>
         <div>Layer: {layers[activeLayerIndex]?.name || '-'}</div>
         <div>Coords: {hoveredTileRef.current ? `${hoveredTileRef.current.i},${hoveredTileRef.current.j}` : '-'}</div>

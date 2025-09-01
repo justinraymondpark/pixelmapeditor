@@ -72,6 +72,10 @@ export default function App() {
   const [tileSearch, setTileSearch] = useState<string>('');
   const [randomizeBrush, setRandomizeBrush] = useState<boolean>(false);
   const [hoverIJ, setHoverIJ] = useState<{ i: number; j: number } | null>(null);
+  // Undo/Redo
+  type LayersSnapshot = { layers: Array<{ id: string; name: string; visible: boolean; locked: boolean; opacity: number; props?: Record<string,string>; cells: Record<string, BoardCell> }> };
+  const historyRef = useRef<{ past: LayersSnapshot[]; future: LayersSnapshot[]; batching: boolean }>({ past: [], future: [], batching: false });
+  const [historySizes, setHistorySizes] = useState<{ undo: number; redo: number }>({ undo: 0, redo: 0 });
 
   // Tile bitmaps per tileset
   type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string; indexWithinBatch?: number; name?: string; tags?: string[] };
@@ -375,6 +379,45 @@ export default function App() {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
   }
 
+  // --- Undo/Redo helpers ---
+  function snapshotLayers(): LayersSnapshot {
+    return {
+      layers: layers.map(l => ({
+        id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, props: l.props || {},
+        cells: Object.fromEntries(l.cells.entries())
+      }))
+    };
+  }
+  function restoreSnapshot(s: LayersSnapshot) {
+    setLayers(s.layers.map(l => ({ id: l.id, name: l.name, visible: l.visible, locked: l.locked, opacity: l.opacity, props: l.props || {}, cells: new Map<string, BoardCell>(Object.entries(l.cells)) })));
+  }
+  function pushHistory() {
+    const snap = snapshotLayers();
+    const h = historyRef.current;
+    h.past.push(snap);
+    if (h.past.length > 200) h.past.shift();
+    h.future = [];
+    setHistorySizes({ undo: h.past.length, redo: h.future.length });
+  }
+  function undo() {
+    const h = historyRef.current;
+    if (!h.past.length) return;
+    const current = snapshotLayers();
+    const prev = h.past.pop()!;
+    h.future.push(current);
+    restoreSnapshot(prev);
+    setHistorySizes({ undo: h.past.length, redo: h.future.length });
+  }
+  function redo() {
+    const h = historyRef.current;
+    if (!h.future.length) return;
+    const current = snapshotLayers();
+    const next = h.future.pop()!;
+    h.past.push(current);
+    restoreSnapshot(next);
+    setHistorySizes({ undo: h.past.length, redo: h.future.length });
+  }
+
   function generateDemoTiles(size: number) {
     const base = (paletteBySet[tileSet] && paletteBySet[tileSet][0]) || builtinPalettes.grassland[0] || '#6abe30';
     const { r: br, g: bg, b: bb } = hexToRgb(base);
@@ -622,6 +665,8 @@ export default function App() {
     } else {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       if (e.altKey) { sampleAt(i, j); return; }
+      // start history batch on primary/secondary operations
+      if (!historyRef.current.batching) { pushHistory(); historyRef.current.batching = true; }
       if (button === 2) {
         erase(i,j);
       } else {
@@ -658,6 +703,7 @@ export default function App() {
     if (e.button === 1) {
       isPanningRef.current = false;
     }
+    historyRef.current.batching = false;
   }
 
   function handleWheel(e: React.WheelEvent) {
@@ -745,12 +791,14 @@ export default function App() {
   }
 
   function fillAt(i: number, j: number) {
+    if (!historyRef.current.batching) { pushHistory(); historyRef.current.batching = true; }
     if (selectedTileIndex !== null) floodFill(i, j, { tileSet, tileIndex: selectedTileIndex });
     else {
       const pal = paletteBySet[tileSet] || builtinPalettes.grassland;
       const color = pal[colorIndex % pal.length];
       floodFill(i, j, { color });
     }
+    historyRef.current.batching = false;
   }
 
   function openEditor(mode: 'add' | 'edit') {
@@ -1005,6 +1053,8 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
       if (e.key === 'b' || e.key === 'B') setTool('brush');
       else if (e.key === 'e' || e.key === 'E') setTool('eraser');
       else if (e.key === 'f' || e.key === 'F') setTool('fill');
@@ -1102,6 +1152,8 @@ export default function App() {
         <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush (B)</button>
         <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser (E)</button>
         <button className={tool === 'fill' ? 'active' : ''} onClick={() => setTool('fill')}>Fill (F)</button>
+        <button onClick={undo} disabled={historySizes.undo === 0}>Undo</button>
+        <button onClick={redo} disabled={historySizes.redo === 0}>Redo</button>
         {/* moved tileset select & Add Set into sidebar header */}
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
         <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
@@ -1412,6 +1464,19 @@ export default function App() {
                   </div>
                 </div>
               ) : null}
+              <div style={{ marginTop: 8, fontWeight: 600 }}>Stamp Transform</div>
+              <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                <label><input type="checkbox" checked={stampFlipX} onChange={e=>setStampFlipX(e.target.checked)} /> Flip X</label>
+                <label><input type="checkbox" checked={stampFlipY} onChange={e=>setStampFlipY(e.target.checked)} /> Flip Y</label>
+                <label>Rotate
+                  <select value={stampRotate} onChange={e=>setStampRotate(parseInt(e.target.value,10) as any)}>
+                    <option value={0}>0°</option>
+                    <option value={90}>90°</option>
+                    <option value={180}>180°</option>
+                    <option value={270}>270°</option>
+                  </select>
+                </label>
+              </div>
             </div>
           )}
         </div>

@@ -78,3 +78,7 @@
 - Stamp Library: save/use/delete stamps; persisted and exported
 - Layer Properties: key/value per layer; persisted and exported
 
+## 0.2.4
+- Undo/Redo with Ctrl/Cmd+Z / Shift+Cmd+Z / Ctrl+Y; toolbar buttons
+- Stamp transforms: Flip X/Y and rotate 0/90/180/270 while stamping
+

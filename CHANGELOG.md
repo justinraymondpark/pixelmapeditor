@@ -64,3 +64,8 @@
 - Sidebar header adds "None" button for solid-color painting
 - Export/Import/LocalStorage updated to support layers (backwards compatible)
 
+## 0.2.1
+- Tile metadata: name/tags with localStorage; search box in sidebar
+- Randomize brush toggle uses current filters to pick variants
+- Status bar shows tool, active layer and tile coordinates
+

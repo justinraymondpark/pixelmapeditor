@@ -65,9 +65,12 @@ export default function App() {
   // Tileset zoom (thumbnail size in px)
   const [tileThumb, setTileThumb] = useState<number>(16);
   const [tilesPerRow, setTilesPerRow] = useState<number>(25);
+  const [tileSearch, setTileSearch] = useState<string>('');
+  const [randomizeBrush, setRandomizeBrush] = useState<boolean>(false);
+  const [hoverIJ, setHoverIJ] = useState<{ i: number; j: number } | null>(null);
 
   // Tile bitmaps per tileset
-  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string; indexWithinBatch?: number };
+  type TileBitmap = { id: string; size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; spacer?: boolean; batchId?: string; indexWithinBatch?: number; name?: string; tags?: string[] };
   const emptyTilesBySet = (): Record<TileSetName, TileBitmap[]> => ({
     grassland: [],
     desert: [],
@@ -112,11 +115,11 @@ export default function App() {
     try {
       const raw = localStorage.getItem('pixelmapeditor.tiles');
       if (raw) {
-        const parsed: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = JSON.parse(raw);
+        const parsed: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; name?: string; tags?: string[] }[]> = JSON.parse(raw);
         const rebuilt = emptyTilesBySet();
         (Object.keys(rebuilt) as TileSetName[]).forEach(setName => {
           const arr = parsed[setName] || [];
-          rebuilt[setName] = arr.map((t, idx) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
+          rebuilt[setName] = arr.map((t, idx) => ({ id: `${setName}-${Date.now()}-${idx}`, size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask, name: t.name, tags: Array.isArray(t.tags) ? t.tags : undefined }));
         });
         setTilesBySet(rebuilt);
         setEditorActiveSet('grassland');
@@ -165,9 +168,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const toStore: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number }[]> = {};
+    const toStore: Record<string, { size: number; pixels: (string | null)[]; autoGroup?: string; autoMask?: number; name?: string; tags?: string[] }[]> = {};
     (Object.keys(tilesBySet) as TileSetName[]).forEach(setName => {
-      toStore[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask }));
+      toStore[setName] = tilesBySet[setName].map(t => ({ size: t.size, pixels: t.pixels, autoGroup: t.autoGroup, autoMask: t.autoMask, name: t.name, tags: t.tags }));
     });
     try { localStorage.setItem('pixelmapeditor.tiles', JSON.stringify(toStore)); } catch {}
   }, [tilesBySet]);
@@ -384,7 +387,7 @@ export default function App() {
       if (mask & 2) drawV(size - border);
       if (mask & 4) drawH(size - border);
       if (mask & 8) drawV(0);
-      return { id: `${tileSet}-demo-${size}-${mask}-${Date.now()}`, size, pixels, autoGroup: 'ground', autoMask: mask };
+      return { id: `${tileSet}-demo-${size}-${mask}-${Date.now()}`, size, pixels, autoGroup: 'ground', autoMask: mask, name: `demo-${mask}`, tags: ['demo','auto'] };
     };
     const newTiles: TileBitmap[] = [];
     for (let m = 0; m < 16; m++) newTiles.push(makeTile(m));
@@ -634,6 +637,7 @@ export default function App() {
     // Update hover preview for all mouse moves
     const { i, j } = screenToIso(e.clientX, e.clientY);
     hoveredTileRef.current = { i, j };
+    setHoverIJ({ i, j });
   }
 
   function handleMouseUp(e: React.MouseEvent) {
@@ -659,6 +663,7 @@ export default function App() {
 
   function handleMouseLeave() {
     hoveredTileRef.current = null;
+    setHoverIJ(null);
   }
 
   function paint(i: number, j: number) {
@@ -687,7 +692,25 @@ export default function App() {
         const neighbors = [ [i-1,j], [i,j+1], [i+1,j], [i,j-1] ] as Array<[number,number]>;
         neighbors.forEach(([ni, nj]) => updateAutotileForCell(next, ni, nj));
       } else if (selectedTileIndex !== null) {
-        next.set(key, { tileSet, tileIndex: selectedTileIndex });
+        if (randomizeBrush) {
+          // pick among visible filtered tiles from current tileset
+          const needle = tileSearch.trim().toLowerCase();
+          const candidates: number[] = [];
+          tilesBySet[tileSet].forEach((t, idx) => {
+            if (t.spacer) return;
+            if (tilesSidebarGroupFilter && t.autoGroup !== tilesSidebarGroupFilter) return;
+            if (needle) {
+              const n = (t.name || '').toLowerCase();
+              const tags = (t.tags || []).join(' ').toLowerCase();
+              if (n.indexOf(needle) === -1 && tags.indexOf(needle) === -1) return;
+            }
+            candidates.push(idx);
+          });
+          const pick = candidates.length ? candidates[Math.floor(Math.random()*candidates.length)] : selectedTileIndex;
+          next.set(key, { tileSet, tileIndex: pick });
+        } else {
+          next.set(key, { tileSet, tileIndex: selectedTileIndex });
+        }
       } else {
         const pal = paletteBySet[tileSet] || builtinPalettes.grassland;
         const color = pal[colorIndex % pal.length];
@@ -1179,6 +1202,10 @@ export default function App() {
               setTileSet(name);
             }}>Add Set</button>
             <button onClick={() => setSelectedTileIndex(null)} title="Use solid color" className={selectedTileIndex === null ? 'active' : ''}>None</button>
+            <input type="text" placeholder="Search tiles (name/tags)" value={tileSearch} onChange={e => setTileSearch(e.target.value)} style={{ width: 120 }} />
+            <label style={{ display:'inline-flex', alignItems:'center', gap:4 }} title="Randomize among visible tiles">
+              <input type="checkbox" checked={randomizeBrush} onChange={e => setRandomizeBrush(e.target.checked)} /> Rand
+            </label>
             <select value={tilesSidebarGroupFilter} onChange={e => setTilesSidebarGroupFilter(e.target.value)}>
               <option value="">All groups</option>
               {Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any).map((g: string) => (
@@ -1242,8 +1269,14 @@ export default function App() {
                 rows.push(<div key={`row-${rows.length}-${currentBatch}-${Math.random()}`} className="tiles-row" style={{ gridTemplateColumns: `repeat(${Math.max(colCount, tilesPerRow)}, ${tileThumb}px)` }}>{currentRow}</div>);
                 currentRow = []; colIndex = 0;
               };
+              const needle = tileSearch.trim().toLowerCase();
               tilesBySet[tileSet].forEach((t, idx) => {
                 if (t.spacer) { flushRow(); rows.push(<div key={`sp-${rows.length}`} style={{ height: 8 }} />); currentBatch = null; return; }
+                if (needle) {
+                  const n = (t.name || '').toLowerCase();
+                  const tags = (t.tags || []).join(' ').toLowerCase();
+                  if (n.indexOf(needle) === -1 && tags.indexOf(needle) === -1) { colIndex = (colIndex + 1) % (batchMetaBySet[tileSet]?.[(t.batchId||'default')]?.cols || 12); return; }
+                }
                 const batchId = t.batchId || 'default';
                 if (batchId !== currentBatch) { flushRow(); currentBatch = batchId; colCount = batchMetaBySet[tileSet]?.[batchId]?.cols || 12; }
                 const isSel = selectedTileIndex === idx;
@@ -1420,6 +1453,13 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Status bar */}
+      <div className="statusbar">
+        <div>Tool: {tool}</div>
+        <div>Layer: {layers[activeLayerIndex]?.name || '-'}</div>
+        <div>Coords: {hoveredTileRef.current ? `${hoveredTileRef.current.i},${hoveredTileRef.current.j}` : '-'}</div>
+      </div>
     </div>
   );
 }

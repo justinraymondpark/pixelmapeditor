@@ -173,6 +173,21 @@ canvas {
   background: #dfe6e9;
 }
 
+.statusbar {
+  position: fixed;
+  left: 260px;
+  right: 420px;
+  bottom: 0;
+  height: 22px;
+  background: #dfe6e9;
+  border-top: 1px solid #bdc3c7;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 8px;
+}
+
 .tiles-grid {
   padding: 0.5rem;
   display: block;

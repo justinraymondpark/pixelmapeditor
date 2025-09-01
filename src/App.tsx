@@ -458,7 +458,7 @@ export default function App() {
   // --- Auto-tiling helpers ---
   function getGroupMapForSet(tileSetName: TileSetName, groupName: string): Map<number, number> {
     const m = new Map<number, number>();
-    tilesBySet[tileSetName].forEach((t, idx) => {
+    (tilesBySet[tileSetName] || []).forEach((t, idx) => {
       if (t.autoGroup === groupName && typeof t.autoMask === 'number') m.set(t.autoMask, idx);
     });
     return m;
@@ -466,7 +466,9 @@ export default function App() {
 
   function getTileMeta(tileSetName: TileSetName, tileIndex?: number) {
     if (tileIndex === undefined || tileIndex === null) return null;
-    return tilesBySet[tileSetName][tileIndex] || null;
+    const arr = tilesBySet[tileSetName];
+    if (!arr) return null;
+    return arr[tileIndex] || null;
   }
 
   function getBoardCell(map: Map<string, BoardCell>, i: number, j: number): BoardCell | undefined {
@@ -551,7 +553,7 @@ export default function App() {
   }
 
   function getOffscreenForTile(tileSetName: TileSetName, tileIndex: number): HTMLCanvasElement | null {
-    const tile = tilesBySet[tileSetName][tileIndex];
+    const tile = (tilesBySet[tileSetName] || [])[tileIndex];
     if (!tile) return null;
     const key = `${tileSetName}:${tileIndex}:${tile.size}`;
     const cache = offscreenCacheRef.current;
@@ -879,7 +881,7 @@ export default function App() {
         copy[targetSet] = [...copy[targetSet], newTile];
         return copy;
       });
-      if (targetSet === tileSet) setSelectedTileIndex(tilesBySet[targetSet].length);
+      if (targetSet === tileSet) setSelectedTileIndex((tilesBySet[targetSet] || []).length);
     } else if (editorMode === 'edit' && selectedTileIndex !== null) {
       const idx = selectedTileIndex;
       setTilesBySet(prev => {

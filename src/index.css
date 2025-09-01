@@ -57,7 +57,7 @@ canvas {
 
 .board-canvas {
   width: calc(100vw - var(--left-w-cur, 0px) - var(--right-w-cur, 0px));
-  height: calc(100vh - var(--toolbar-h, 56px) - var(--statusbar-h, 22px));
+  height: calc(100vh - var(--toolbar-h, 56px) - 22px);
   display: block;
   margin-left: var(--left-w-cur, 0px);
   margin-right: 0;
@@ -192,7 +192,7 @@ canvas {
   left: var(--left-w-cur, 0px);
   right: var(--right-w-cur, 0px);
   bottom: 0;
-  height: var(--statusbar-h, 22px);
+  height: 22px;
   background: #dfe6e9;
   border-top: 1px solid #bdc3c7;
   font-size: 12px;

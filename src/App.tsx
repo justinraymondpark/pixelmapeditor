@@ -1629,8 +1629,7 @@ export default function App() {
       {/* Status bar */}
       <div className="statusbar" ref={(el)=>{
         if (!el) return;
-        const h = el.getBoundingClientRect().height;
-        el.parentElement?.style.setProperty('--statusbar-h', `${Math.round(h)}px`);
+        // fixed 22px height; only update side widths
         const left = document.querySelector('.layers-panel') as HTMLElement | null;
         const right = document.querySelector('.tiles-sidebar') as HTMLElement | null;
         if (left) el.parentElement?.style.setProperty('--left-w-cur', `${Math.round(left.getBoundingClientRect().width)}px`);

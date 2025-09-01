@@ -903,20 +903,7 @@ export default function App() {
       <div className="toolbar">
         <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush</button>
         <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser</button>
-        <select value={tileSet} onChange={e => { setTileSet(e.target.value as TileSetName); setColorIndex(0); }}>
-          {sets.map(ts => (
-            <option key={ts} value={ts}>{ts}</option>
-          ))}
-        </select>
-        <button onClick={() => {
-          const name = prompt('New tileset name?');
-          if (!name) return;
-          if (sets.includes(name)) { alert('Name exists'); return; }
-          setSets(prev => [...prev, name]);
-          setTilesBySet(prev => ({ ...prev, [name]: [] }));
-          setPaletteBySet(prev => ({ ...prev, [name]: [...builtinPalettes.grassland] }));
-          setTileSet(name);
-        }}>Add Set</button>
+        {/* moved tileset select & Add Set into sidebar header */}
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
         <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
           {([''] as string[]).concat(Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any)).map((g, idx) => (
@@ -942,25 +929,7 @@ export default function App() {
             />
           ))}
         </div>
-        <div className="tilebar">
-          <div
-            className={`tile-thumb ${selectedTileIndex === null ? 'active' : ''}`}
-            title="No tile (use solid color)"
-            onClick={() => setSelectedTileIndex(null)}
-          >
-            ×
-          </div>
-          {tilesBySet[tileSet].map((t, idx) => (
-            <canvas
-              key={t.id}
-              width={editorTileSize}
-              height={editorTileSize}
-              style={{ width: 24, height: 24, imageRendering: 'pixelated', border: selectedTileIndex === idx ? '2px solid #ecf0f1' : '1px solid #bdc3c7' }}
-              ref={(el) => { if (el) { renderPixelsToCanvas(el, t.pixels, t.size); } }}
-              onClick={() => setSelectedTileIndex(idx)}
-            />
-          ))}
-        </div>
+        {/* removed redundant top-bar tiles strip */}
         <div className="cloud">
           <input type="text" placeholder="Project ID" value={projectId} onChange={e => setProjectId(e.target.value)} />
           <button onClick={saveToCloud}>Save Cloud</button>
@@ -1046,7 +1015,20 @@ export default function App() {
       {tilesSidebarOpen && (
         <div className="tiles-sidebar">
           <div className="tiles-sidebar-header">
-            <div>Tiles: {tileSet}</div>
+            <select value={tileSet} onChange={e => { setTileSet(e.target.value as TileSetName); setColorIndex(0); }}>
+              {sets.map(ts => (
+                <option key={ts} value={ts}>{ts}</option>
+              ))}
+            </select>
+            <button onClick={() => {
+              const name = prompt('New tileset name?');
+              if (!name) return;
+              if (sets.includes(name)) { alert('Name exists'); return; }
+              setSets(prev => [...prev, name]);
+              setTilesBySet(prev => ({ ...prev, [name]: [] }));
+              setPaletteBySet(prev => ({ ...prev, [name]: [...builtinPalettes.grassland] }));
+              setTileSet(name);
+            }}>Add Set</button>
             <select value={tilesSidebarGroupFilter} onChange={e => setTilesSidebarGroupFilter(e.target.value)}>
               <option value="">All groups</option>
               {Array.from(new Set(tilesBySet[tileSet].map(t => t.autoGroup).filter(Boolean)) as any).map((g: string) => (

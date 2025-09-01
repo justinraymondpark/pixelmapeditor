@@ -53,3 +53,7 @@
 - Auto-tiling Setup 3x3 cells scale with Zoom; no indentation
 - Auto-tiling Setup tile picker mirrors sidebar batch rows/cols
 
+## 0.1.4
+- Move tileset selector and Add Set into sidebar header
+- Remove redundant top-bar tile strip to reduce clutter
+

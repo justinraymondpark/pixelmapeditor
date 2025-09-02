@@ -281,7 +281,7 @@ canvas {
 .stamps-panel {
   position: fixed;
   top: var(--toolbar-h, 56px);
-  left: clamp(200px, 24vw, 360px);
+  left: var(--left-w-cur, 0px);
   width: clamp(220px, 26vw, 460px);
   bottom: var(--statusbar-h, 22px);
   background: #ecf0f1;

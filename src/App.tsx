@@ -1179,13 +1179,8 @@ export default function App() {
         <button className={tool === 'stamp' ? 'active' : ''} onClick={() => { setTool('stamp'); setShowStamps(true); }}>Stamp (S)</button>
         <button onClick={undo} disabled={historySizes.undo === 0}>Undo</button>
         <button onClick={redo} disabled={historySizes.redo === 0}>Redo</button>
-        {/* moved tileset select & Add Set into sidebar header */}
+        {/* Auto-tiler config moved into modal; removed redundant dropdown */}
         <button className={autoTiling ? 'active' : ''} onClick={() => setAutoTiling(a => !a)}>Auto</button>
-        <select value={autoGroup} onChange={e => setAutoGroup(e.target.value)} disabled={!autoTiling}>
-          {([''] as string[]).concat(Array.from(new Set((tilesBySet[tileSet] || []).map(t => t.autoGroup).filter(Boolean)) as any)).map((g, idx) => (
-            <option key={idx} value={g as string}>{g ? g : 'No group'}</option>
-          ))}
-        </select>
         <button onClick={() => setStampBuilderOpen(true)}>Stamp Builder</button>
         <button onClick={() => setTilesSidebarOpen(o => !o)}>{tilesSidebarOpen ? 'Hide Tiles' : 'Show Tiles'}</button>
         <button onClick={() => setLayersPanelOpen(o => !o)}>{layersPanelOpen ? 'Hide Layers' : 'Show Layers'}</button>
@@ -1319,6 +1314,15 @@ export default function App() {
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
+            <button onClick={() => {
+              const g = prompt('Delete group (exact name)?');
+              if (!g) return;
+              setTilesBySet(prev => {
+                const copy = { ...prev } as Record<TileSetName, TileBitmap[]>;
+                copy[tileSet] = (copy[tileSet]||[]).map(t => t.autoGroup === g ? { ...t, autoGroup: undefined, autoMask: undefined } : t);
+                return copy;
+              });
+            }}>Delete Group</button>
             <div style={{ flex: 1 }} />
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontSize: 12 }}>Zoom</span>
@@ -1410,7 +1414,10 @@ export default function App() {
 
       {/* Layers panel */}
       {layersPanelOpen && (
-      <div className="layers-panel">
+      <div className="layers-panel" ref={(el)=>{
+        if (!el) return;
+        el.parentElement?.style.setProperty('--left-w-cur', `${Math.round(el.getBoundingClientRect().width)}px`);
+      }}>
         <div className="layers-header">
           <div>Layers</div>
           <div style={{ flex: 1 }} />
@@ -1513,7 +1520,11 @@ export default function App() {
 
       {/* Stamps panel */}
       {showStamps && (
-        <div className="stamps-panel">
+        <div className="stamps-panel" ref={(el)=>{
+          if (!el) return;
+          // if layers hidden, ensure left width reflects only stamps panel
+          if (!layersPanelOpen) el.parentElement?.style.setProperty('--left-w-cur', `${Math.round(el.getBoundingClientRect().width)}px`);
+        }}>
           <div className="stamps-header">
             <div>Stamps: {tileSet}</div>
             <div style={{ flex: 1 }} />
@@ -1521,7 +1532,7 @@ export default function App() {
           </div>
           <div className="stamps-list">
             {(savedStampsBySet[tileSet]||[]).map(st => (
-              <div key={st.id} style={{ border:'1px solid #bdc3c7', background:'#fff', padding:4, cursor:'pointer' }} onClick={() => setStamp({ set: st.set, w: st.w, h: st.h, tiles: [...st.tiles] })}>
+              <div key={st.id} style={{ border:'1px solid #bdc3c7', background:'#fff', padding:4, cursor:'pointer' }} onClick={() => { setStamp({ set: st.set, w: st.w, h: st.h, tiles: [...st.tiles] }); setTool('stamp'); }}>
                 <div style={{ fontSize:12, marginBottom:4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{st.name}</div>
                 <div style={{ display:'grid', gridTemplateColumns:`repeat(${st.w}, ${Math.max(12, Math.floor(tileThumb*0.9))}px)`, gap:1, justifyContent:'start' }}>
                   {st.tiles.map((tIdx, i) => (

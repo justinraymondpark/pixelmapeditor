@@ -16,7 +16,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
   type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity: number; cells: Map<string, BoardCell>; props?: Record<string, string> };
-  const [tool, setTool] = useState<'brush' | 'eraser' | 'fill'>('brush');
+  const [tool, setTool] = useState<'brush' | 'eraser' | 'fill' | 'stamp'>('brush');
   const [sets, setSets] = useState<string[]>(['grassland','desert','swamp','cyberpunk']);
   const [tileSet, setTileSet] = useState<TileSetName>('grassland');
   const [colorIndex, setColorIndex] = useState(0);
@@ -84,6 +84,8 @@ export default function App() {
   const [tileSearch, setTileSearch] = useState<string>('');
   const [randomizeBrush, setRandomizeBrush] = useState<boolean>(false);
   const [hoverIJ, setHoverIJ] = useState<{ i: number; j: number } | null>(null);
+  const [layersPanelOpen, setLayersPanelOpen] = useState(true);
+  const [showStamps, setShowStamps] = useState(false);
   // Undo/Redo
   type LayersSnapshot = { layers: Array<{ id: string; name: string; visible: boolean; locked: boolean; opacity: number; props?: Record<string,string>; cells: Record<string, BoardCell> }> };
   const historyRef = useRef<{ past: LayersSnapshot[]; future: LayersSnapshot[]; batching: boolean }>({ past: [], future: [], batching: false });
@@ -1079,6 +1081,7 @@ export default function App() {
       if (e.key === 'b' || e.key === 'B') setTool('brush');
       else if (e.key === 'e' || e.key === 'E') setTool('eraser');
       else if (e.key === 'f' || e.key === 'F') setTool('fill');
+      else if (e.key === 's' || e.key === 'S') { setTool('stamp'); setShowStamps(true); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1173,6 +1176,7 @@ export default function App() {
         <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>Brush (B)</button>
         <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>Eraser (E)</button>
         <button className={tool === 'fill' ? 'active' : ''} onClick={() => setTool('fill')}>Fill (F)</button>
+        <button className={tool === 'stamp' ? 'active' : ''} onClick={() => { setTool('stamp'); setShowStamps(true); }}>Stamp (S)</button>
         <button onClick={undo} disabled={historySizes.undo === 0}>Undo</button>
         <button onClick={redo} disabled={historySizes.redo === 0}>Redo</button>
         {/* moved tileset select & Add Set into sidebar header */}
@@ -1184,6 +1188,7 @@ export default function App() {
         </select>
         <button onClick={() => setStampBuilderOpen(true)}>Stamp Builder</button>
         <button onClick={() => setTilesSidebarOpen(o => !o)}>{tilesSidebarOpen ? 'Hide Tiles' : 'Show Tiles'}</button>
+        <button onClick={() => setLayersPanelOpen(o => !o)}>{layersPanelOpen ? 'Hide Layers' : 'Show Layers'}</button>
         <select value={editorTileSize} onChange={e => { const s = parseInt(e.target.value, 10); setEditorTileSize(s); setEditorPixels(Array(s * s).fill(null)); }}>
           {[8,16,24,32,48,64].map(s => <option key={s} value={s}>{s}x{s}</option>)}
         </select>
@@ -1404,6 +1409,7 @@ export default function App() {
       )}
 
       {/* Layers panel */}
+      {layersPanelOpen && (
       <div className="layers-panel">
         <div className="layers-header">
           <div>Layers</div>
@@ -1503,6 +1509,30 @@ export default function App() {
           )}
         </div>
       </div>
+      )}
+
+      {/* Stamps panel */}
+      {showStamps && (
+        <div className="stamps-panel">
+          <div className="stamps-header">
+            <div>Stamps: {tileSet}</div>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setShowStamps(false)}>Hide</button>
+          </div>
+          <div className="stamps-list">
+            {(savedStampsBySet[tileSet]||[]).map(st => (
+              <div key={st.id} style={{ border:'1px solid #bdc3c7', background:'#fff', padding:4, cursor:'pointer' }} onClick={() => setStamp({ set: st.set, w: st.w, h: st.h, tiles: [...st.tiles] })}>
+                <div style={{ fontSize:12, marginBottom:4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{st.name}</div>
+                <div style={{ display:'grid', gridTemplateColumns:`repeat(${st.w}, ${Math.max(12, Math.floor(tileThumb*0.9))}px)`, gap:1, justifyContent:'start' }}>
+                  {st.tiles.map((tIdx, i) => (
+                    <canvas key={i} width={tilesBySet[st.set]?.[tIdx]?.size||16} height={tilesBySet[st.set]?.[tIdx]?.size||16} style={{ width: Math.max(12, Math.floor(tileThumb*0.9)), height: Math.max(12, Math.floor(tileThumb*0.9)), imageRendering:'pixelated', background:'#fafafa' }} ref={(el)=>{ if (el) { const t = tilesBySet[st.set]?.[tIdx]; if (t) renderPixelsToCanvas(el, t.pixels, t.size); } }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loadModalOpen && (
         <div className="modal-backdrop" onClick={() => setLoadModalOpen(false)}>

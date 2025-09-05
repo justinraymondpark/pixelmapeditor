@@ -15,6 +15,7 @@ type TileSetName = string;
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawRef = useRef<() => void>();
+  const lastDrawnHoverRef = useRef<{ i: number; j: number } | null>(null);
   type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
   type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity: number; cells: Map<string, BoardCell>; props?: Record<string, string> };
   const [tool, setTool] = useState<'brush' | 'eraser' | 'fill' | 'stamp'>('brush');
@@ -257,15 +258,22 @@ export default function App() {
   }, [sets, tileSet]);
 
   // Main draw function
-  const draw = () => {
+  const draw = (skipHover = false) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    
+    // Only resize canvas if dimensions actually changed
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    
     const ctx = canvas.getContext('2d', { alpha: false })!;
     
-    const width = canvas.width = canvas.clientWidth;
-    const height = canvas.height = canvas.clientHeight;
-    
-    // Fill background instead of clearing (faster)
+    // Fill background
     ctx.fillStyle = '#f5f5f5';
     ctx.fillRect(0, 0, width, height);
 
@@ -275,11 +283,24 @@ export default function App() {
     ctx.translate(offsetRef.current.x, offsetRef.current.y);
 
     if (grid) {
-      const range = 50;
+      // Calculate visible bounds to only draw what's on screen
+      const viewLeft = -width / (2 * scaleRef.current) - offsetRef.current.x;
+      const viewRight = width / (2 * scaleRef.current) - offsetRef.current.x;
+      const viewTop = -height / (2 * scaleRef.current) - offsetRef.current.y;
+      const viewBottom = height / (2 * scaleRef.current) - offsetRef.current.y;
+      
+      // Convert view bounds to grid coordinates
+      const minI = Math.floor((viewTop + viewLeft) / tileH) - 1;
+      const maxI = Math.ceil((viewBottom + viewRight) / tileH) + 1;
+      const minJ = Math.floor((viewTop - viewRight) / tileH) - 1;
+      const maxJ = Math.ceil((viewBottom - viewLeft) / tileH) + 1;
+      
       ctx.strokeStyle = 'rgba(0,0,0,0.1)';
       ctx.lineWidth = 1 / scaleRef.current;
-      for (let i = -range; i <= range; i++) {
-        for (let j = -range; j <= range; j++) {
+      
+      // Only draw visible grid cells
+      for (let i = Math.max(-50, minI); i <= Math.min(50, maxI); i++) {
+        for (let j = Math.max(-50, minJ); j <= Math.min(50, maxJ); j++) {
           const pos = isoToScreen(i,j);
           ctx.beginPath();
           ctx.moveTo(pos.x, pos.y - tileH/2);
@@ -323,8 +344,8 @@ export default function App() {
       ctx.restore();
     });
 
-    // Hover highlight
-    if (hoveredTileRef.current) {
+    // Hover highlight (skip if told to)
+    if (!skipHover && hoveredTileRef.current) {
       const { i, j } = hoveredTileRef.current;
       const pos = isoToScreen(i, j);
       ctx.beginPath();
@@ -341,6 +362,7 @@ export default function App() {
     }
 
     ctx.restore();
+    lastDrawnHoverRef.current = hoveredTileRef.current;
   };
 
   // Store draw function in ref to avoid stale closures
@@ -761,16 +783,19 @@ export default function App() {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       erase(i,j);
     }
-    // Throttle hover updates to reduce CPU usage
-    const now = Date.now();
-    if (now - lastMouseMoveRef.current > 50) { // ~20fps max for hover
-      const { i, j } = screenToIso(e.clientX, e.clientY);
-      const prev = hoveredTileRef.current;
-      if (!prev || prev.i !== i || prev.j !== j) {
-        hoveredTileRef.current = { i, j };
+    // Skip hover updates if mouse hasn't moved to a new tile
+    const { i, j } = screenToIso(e.clientX, e.clientY);
+    const prev = hoveredTileRef.current;
+    if (!prev || prev.i !== i || prev.j !== j) {
+      // Only redraw if actually hovering over a different tile
+      hoveredTileRef.current = { i, j };
+      // Skip full redraw if we're just updating hover
+      const now = Date.now();
+      if (now - lastMouseMoveRef.current > 100) {
+        // Full redraw occasionally
         if (drawRef.current) drawRef.current();
+        lastMouseMoveRef.current = now;
       }
-      lastMouseMoveRef.current = now;
     }
   }
 

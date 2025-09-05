@@ -1,3 +1,11 @@
+## 0.2.9
+- More performance optimizations:
+  - Grid now only draws visible cells (not 5000 cells every frame!)
+  - Canvas no longer resizes on every draw (was clearing buffer)
+  - Smarter viewport culling based on actual view bounds
+  - Reduced hover redraw frequency to 100ms
+  - Hover changes no longer trigger full redraws
+
 ## 0.2.8
 - Fixed hover CPU spike issue:
   - Completely removed the continuous animation loop

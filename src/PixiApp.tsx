@@ -117,18 +117,21 @@ export default function PixiApp({
   useEffect(() => {
     if (!mountRef.current) return;
 
-    // Create PixiJS application
-    const app = new PIXI.Application({
-      width: window.innerWidth,
-      height: window.innerHeight - 100, // Account for UI
-      backgroundColor: 0xf5f5f5,
-      antialias: true,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true
-    });
+    // Create PixiJS application with async init for v8
+    const initApp = async () => {
+      const app = new PIXI.Application();
+      
+      await app.init({
+        width: window.innerWidth,
+        height: window.innerHeight - 100, // Account for UI
+        backgroundColor: 0xf5f5f5,
+        antialias: true,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true
+      });
 
-    mountRef.current.appendChild(app.view as HTMLCanvasElement);
-    appRef.current = app;
+      mountRef.current!.appendChild(app.canvas);
+      appRef.current = app;
 
     // Create main viewport container
     const viewport = new PIXI.Container();
@@ -149,10 +152,10 @@ export default function PixiApp({
 
     // Handle resize
     const handleResize = () => {
-      if (!app) return;
-      app.renderer.resize(window.innerWidth, window.innerHeight - 100);
-      viewport.x = app.screen.width / 2;
-      viewport.y = app.screen.height / 2;
+      if (!appRef.current) return;
+      appRef.current.renderer.resize(window.innerWidth, window.innerHeight - 100);
+      viewportRef.current!.x = appRef.current.screen.width / 2;
+      viewportRef.current!.y = appRef.current.screen.height / 2;
     };
     window.addEventListener('resize', handleResize);
 
@@ -253,15 +256,25 @@ export default function PixiApp({
     app.stage.on('pointermove', handlePointerMove);
     app.stage.on('pointerup', handlePointerUp);
     app.stage.on('pointerupoutside', handlePointerUp);
-    app.view.addEventListener?.('wheel', handleWheel);
+    app.canvas.addEventListener?.('wheel', handleWheel);
+    };
 
+    initApp();
+
+    // Cleanup function
     return () => {
-      window.removeEventListener('resize', handleResize);
-      app.view.removeEventListener?.('wheel', handleWheel);
-      app.destroy(true, { children: true, texture: true, baseTexture: true });
-      if (mountRef.current?.contains(app.view as HTMLCanvasElement)) {
-        mountRef.current.removeChild(app.view as HTMLCanvasElement);
-      }
+      const cleanup = async () => {
+        if (appRef.current) {
+          window.removeEventListener('resize', handleResize);
+          appRef.current.canvas.removeEventListener?.('wheel', handleWheel);
+          appRef.current.destroy(true, { children: true, texture: true, baseTexture: true });
+          if (mountRef.current?.contains(appRef.current.canvas)) {
+            mountRef.current.removeChild(appRef.current.canvas);
+          }
+          appRef.current = null;
+        }
+      };
+      cleanup();
     };
   }, []); // Only run once on mount
 

@@ -329,6 +329,7 @@ export default function PixiApp({
   // Create display object for a cell
   const createDisplayForCell = (i: number, j: number, cell: BoardCell): PIXI.DisplayObject | null => {
     const pos = isoToScreen(i, j);
+    const depth = (i + j) * 2048 + i; // stable isometric depth key
     if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
       const texture = getTextureForTile(cell.tileSet, cell.tileIndex);
       if (!texture) return null;
@@ -339,6 +340,7 @@ export default function PixiApp({
       const scaleX = tileW / texture.width;
       const scaleY = tileH / texture.height;
       sprite.scale.set(scaleX, scaleY);
+      (sprite as any).zIndex = depth;
       return sprite;
     }
     if (cell.color) {
@@ -351,6 +353,7 @@ export default function PixiApp({
       graphics.lineTo(pos.x - tileW/2, pos.y);
       graphics.closePath();
       graphics.endFill();
+      (graphics as any).zIndex = depth;
       return graphics;
     }
     return null;
@@ -363,6 +366,7 @@ export default function PixiApp({
     const map = layerSpriteMapsRef.current[layerIdx];
     const container = layerContainersRef.current[layerIdx];
     if (!map || !container) return;
+    (container as any).sortableChildren = true;
     // Remove old if exists
     const old = map.get(key);
     if (old) {
@@ -373,6 +377,8 @@ export default function PixiApp({
     const display = createDisplayForCell(i, j, cell);
     if (display) {
       container.addChild(display);
+      // mark for resort so newly added respects zIndex
+      (container as any).sortDirty = true;
       map.set(key, display);
     }
   };
@@ -415,6 +421,8 @@ export default function PixiApp({
           map.set(key, display);
         }
       });
+      (container as any).sortableChildren = true;
+      (container as any).sortDirty = true;
     }
   }, [layers, ensureLayerContainers]);
 

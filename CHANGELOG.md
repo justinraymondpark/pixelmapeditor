@@ -1,3 +1,11 @@
+## 0.2.8
+- Fixed hover CPU spike issue:
+  - Completely removed the continuous animation loop
+  - No more requestAnimationFrame running 60 times per second
+  - Canvas only redraws on actual events (hover change, paint, pan, zoom)
+  - Reduced hover update rate from 60fps to 20fps (50ms throttle)
+  - CPU usage should now be near 0% when idle
+
 ## 0.2.7
 - Critical performance fix for painting/drawing operations:
   - Batched cell updates during mouse drag (no more state updates per pixel)

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const tileW = 64;
 const tileH = 32;
@@ -14,6 +14,7 @@ type TileSetName = string;
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawRef = useRef<() => void>();
   type BoardCell = { color?: string; tileSet?: TileSetName; tileIndex?: number };
   type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity: number; cells: Map<string, BoardCell>; props?: Record<string, string> };
   const [tool, setTool] = useState<'brush' | 'eraser' | 'fill' | 'stamp'>('brush');
@@ -30,8 +31,6 @@ export default function App() {
   const isPanningRef = useRef(false);
   const lastPanPosRef = useRef({ x: 0, y: 0 });
   const hoveredTileRef = useRef<{ i: number; j: number } | null>(null);
-  const needsRedrawRef = useRef(true);
-  const animationIdRef = useRef<number | null>(null);
   const lastMouseMoveRef = useRef(0);
   const pendingCellsRef = useRef<Map<string, BoardCell> | null>(null);
   const isDraggingRef = useRef(false);
@@ -257,8 +256,8 @@ export default function App() {
     }
   }, [sets, tileSet]);
 
-  // Main draw function - only runs when needed
-  const draw = useCallback(() => {
+  // Main draw function
+  const draw = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d', { alpha: false })!;
@@ -342,29 +341,29 @@ export default function App() {
     }
 
     ctx.restore();
-    needsRedrawRef.current = false;
+  };
+
+  // Store draw function in ref to avoid stale closures
+  useEffect(() => {
+    drawRef.current = draw;
+  });
+
+  // Redraw when layers, grid, or activeLayerIndex change
+  useEffect(() => {
+    if (drawRef.current) {
+      drawRef.current();
+    }
   }, [layers, grid, activeLayerIndex]);
 
-  // Animation loop - only runs when needsRedraw is true
+  // Initial draw
   useEffect(() => {
-    function animate() {
-      if (needsRedrawRef.current) {
-        draw();
+    const timer = setTimeout(() => {
+      if (drawRef.current) {
+        drawRef.current();
       }
-      animationIdRef.current = requestAnimationFrame(animate);
-    }
-    animationIdRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current);
-      }
-    };
-  }, [draw]);
-
-  // Mark for redraw when layers or grid change
-  useEffect(() => {
-    needsRedrawRef.current = true;
-  }, [layers, grid]);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Get current layer cells (from pending or state)
   function getCurrentLayerCells(): Map<string, BoardCell> {
@@ -752,7 +751,7 @@ export default function App() {
       lastPanPosRef.current = { x: e.clientX, y: e.clientY };
       offsetRef.current.x += dx / scaleRef.current;
       offsetRef.current.y += dy / scaleRef.current;
-      needsRedrawRef.current = true;
+      if (drawRef.current) drawRef.current();
     } else if (e.buttons & 1) {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       if (tool === 'brush') paint(i,j);
@@ -764,12 +763,12 @@ export default function App() {
     }
     // Throttle hover updates to reduce CPU usage
     const now = Date.now();
-    if (now - lastMouseMoveRef.current > 16) { // ~60fps max
+    if (now - lastMouseMoveRef.current > 50) { // ~20fps max for hover
       const { i, j } = screenToIso(e.clientX, e.clientY);
       const prev = hoveredTileRef.current;
       if (!prev || prev.i !== i || prev.j !== j) {
         hoveredTileRef.current = { i, j };
-        needsRedrawRef.current = true;
+        if (drawRef.current) drawRef.current();
       }
       lastMouseMoveRef.current = now;
     }
@@ -809,12 +808,12 @@ export default function App() {
     scaleRef.current = newScale;
     offsetRef.current.x = ( (px - canvas.clientWidth/2) / newScale ) - worldX;
     offsetRef.current.y = ( (py - canvas.clientHeight/2) / newScale ) - worldY;
-    needsRedrawRef.current = true;
+    if (drawRef.current) drawRef.current();
   }
 
   function handleMouseLeave() {
     hoveredTileRef.current = null;
-    needsRedrawRef.current = true;
+    if (drawRef.current) drawRef.current();
   }
 
   function paint(i: number, j: number) {
@@ -868,7 +867,7 @@ export default function App() {
         const color = pal[colorIndex % pal.length];
         next.set(key, { color });
       }
-      needsRedrawRef.current = true;
+      if (drawRef.current) drawRef.current();
     } else {
       // Single click - update state immediately
       setActiveLayerCells(prev => {
@@ -930,7 +929,7 @@ export default function App() {
     if (isDraggingRef.current && pendingCellsRef.current) {
       if (pendingCellsRef.current.has(key)) {
         pendingCellsRef.current.delete(key);
-        needsRedrawRef.current = true;
+        if (drawRef.current) drawRef.current();
       }
     } else {
       setActiveLayerCells(prev => {

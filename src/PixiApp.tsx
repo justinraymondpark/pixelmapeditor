@@ -59,6 +59,18 @@ export default function PixiApp({
   const [hoveredTile, setHoveredTile] = useState<{ i: number; j: number } | null>(null);
   const lastDragKeyRef = useRef<string | null>(null);
   const initializedRef = useRef(false);
+  // Live props refs to avoid stale closures in event handlers
+  const layersRef = useRef<Layer[]>(layers);
+  const activeLayerIndexRef = useRef<number>(activeLayerIndex);
+  const tileSetRef = useRef<string>(tileSet);
+  const selectedTileIndexRef = useRef<number | null>(selectedTileIndex);
+  const paletteBySetRef = useRef<Record<string, string[]>>(paletteBySet);
+
+  useEffect(() => { layersRef.current = layers; }, [layers]);
+  useEffect(() => { activeLayerIndexRef.current = activeLayerIndex; }, [activeLayerIndex]);
+  useEffect(() => { tileSetRef.current = tileSet; }, [tileSet]);
+  useEffect(() => { selectedTileIndexRef.current = selectedTileIndex; }, [selectedTileIndex]);
+  useEffect(() => { paletteBySetRef.current = paletteBySet; }, [paletteBySet]);
 
   // Convert isometric coordinates
   const isoToScreen = (i: number, j: number) => {
@@ -180,7 +192,7 @@ export default function PixiApp({
       } else if (e.button === 0) { // Left click - paint
         isDraggingRef.current = true;
         lastDragKeyRef.current = null;
-        const layer = layers[activeLayerIndex];
+        const layer = layersRef.current[activeLayerIndexRef.current];
         if (layer && !layer.locked) {
           pendingCellsRef.current = new Map(layer.cells);
           paintAt(i, j);
@@ -188,7 +200,7 @@ export default function PixiApp({
       } else if (e.button === 2) { // Right click - erase
         isDraggingRef.current = true;
         lastDragKeyRef.current = null;
-        const layer = layers[activeLayerIndex];
+        const layer = layersRef.current[activeLayerIndexRef.current];
         if (layer && !layer.locked) {
           pendingCellsRef.current = new Map(layer.cells);
           eraseAt(i, j);
@@ -226,7 +238,7 @@ export default function PixiApp({
       
       // Commit pending changes
       if (isDraggingRef.current && pendingCellsRef.current) {
-        onCellsUpdate(activeLayerIndex, pendingCellsRef.current);
+        onCellsUpdate(activeLayerIndexRef.current, pendingCellsRef.current);
         pendingCellsRef.current = null;
       }
       isDraggingRef.current = false;
@@ -244,10 +256,12 @@ export default function PixiApp({
       if (!pendingCellsRef.current) return;
       const key = `${i},${j}`;
       
-      if (selectedTileIndex !== null) {
-        pendingCellsRef.current.set(key, { tileSet, tileIndex: selectedTileIndex });
+      const selectedIdx = selectedTileIndexRef.current;
+      const curSet = tileSetRef.current;
+      if (selectedIdx !== null) {
+        pendingCellsRef.current.set(key, { tileSet: curSet, tileIndex: selectedIdx });
       } else {
-        const pal = paletteBySet[tileSet] || ['#ffffff'];
+        const pal = paletteBySetRef.current[curSet] || ['#ffffff'];
         const color = pal[colorIndex % pal.length];
         pendingCellsRef.current.set(key, { color });
       }
@@ -402,7 +416,8 @@ export default function PixiApp({
   const rebuildAllLayersFromState = useCallback(() => {
     ensureLayerContainers();
     if (!initializedRef.current) return;
-    for (let idx = 0; idx < layers.length; idx++) {
+    const curLayers = layersRef.current;
+    for (let idx = 0; idx < curLayers.length; idx++) {
       const container = layerContainersRef.current[idx];
       const map = layerSpriteMapsRef.current[idx];
       if (!container || !map) continue;
@@ -410,7 +425,7 @@ export default function PixiApp({
       if ((container as any).removeChildren) container.removeChildren();
       map.forEach(d => d?.destroy?.());
       map.clear();
-      const cells = layers[idx].cells;
+      const cells = curLayers[idx].cells;
       cells.forEach((cell, key) => {
         const [iStr, jStr] = key.split(',');
         const i = parseInt(iStr, 10);
@@ -424,7 +439,7 @@ export default function PixiApp({
       (container as any).sortableChildren = true;
       (container as any).sortDirty = true;
     }
-  }, [layers, ensureLayerContainers]);
+  }, [ensureLayerContainers]);
 
   // Update grid
   useEffect(() => {

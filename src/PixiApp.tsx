@@ -58,7 +58,6 @@ export default function PixiApp({
   const pendingCellsRef = useRef<Map<string, BoardCell> | null>(null);
   const [hoveredTile, setHoveredTile] = useState<{ i: number; j: number } | null>(null);
   const lastDragKeyRef = useRef<string | null>(null);
-  const initializedRef = useRef(false);
 
   // Convert isometric coordinates
   const isoToScreen = (i: number, j: number) => {
@@ -133,8 +132,7 @@ export default function PixiApp({
         autoDensity: true
       });
 
-      if (!mountRef.current) return; // component unmounted
-      mountRef.current.appendChild(app.canvas);
+      mountRef.current!.appendChild(app.canvas);
       appRef.current = app;
 
     // Create main viewport container
@@ -268,10 +266,6 @@ export default function PixiApp({
     app.stage.on('pointerup', handlePointerUp);
     app.stage.on('pointerupoutside', handlePointerUp);
     app.canvas.addEventListener?.('wheel', handleWheel);
-
-    // Mark ready and build initial scene
-    initializedRef.current = true;
-    rebuildAllLayersFromState();
     };
 
     initApp();
@@ -296,7 +290,6 @@ export default function PixiApp({
   // Ensure containers & sprite maps exist and reflect layer props
   const ensureLayerContainers = useCallback(() => {
     if (!viewportRef.current) return;
-    if (!initializedRef.current) return;
     // Grow arrays as needed
     for (let idx = 0; idx < layers.length; idx++) {
       if (!layerContainersRef.current[idx]) {
@@ -320,7 +313,7 @@ export default function PixiApp({
     // Remove extra containers/maps if layers shrank
     for (let idx = layers.length; idx < layerContainersRef.current.length; idx++) {
       const c = layerContainersRef.current[idx];
-      if (c) c.destroy({ children: true });
+      c.destroy({ children: true });
     }
     layerContainersRef.current.length = layers.length;
     layerSpriteMapsRef.current.length = layers.length;
@@ -362,7 +355,6 @@ export default function PixiApp({
     const key = `${i},${j}`;
     const map = layerSpriteMapsRef.current[layerIdx];
     const container = layerContainersRef.current[layerIdx];
-    if (!map || !container) return;
     // Remove old if exists
     const old = map.get(key);
     if (old) {
@@ -383,7 +375,6 @@ export default function PixiApp({
     const key = `${i},${j}`;
     const map = layerSpriteMapsRef.current[layerIdx];
     const container = layerContainersRef.current[layerIdx];
-    if (!map || !container) return;
     const old = map.get(key);
     if (old) {
       old.destroy();
@@ -395,14 +386,12 @@ export default function PixiApp({
   // Full rebuild only when layers array changes (not on every paint)
   const rebuildAllLayersFromState = useCallback(() => {
     ensureLayerContainers();
-    if (!initializedRef.current) return;
     for (let idx = 0; idx < layers.length; idx++) {
       const container = layerContainersRef.current[idx];
       const map = layerSpriteMapsRef.current[idx];
-      if (!container || !map) continue;
       // Clear existing
-      if ((container as any).removeChildren) container.removeChildren();
-      map.forEach(d => d?.destroy?.());
+      container.removeChildren();
+      map.forEach(d => d.destroy());
       map.clear();
       const cells = layers[idx].cells;
       cells.forEach((cell, key) => {

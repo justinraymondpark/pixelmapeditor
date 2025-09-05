@@ -1,3 +1,18 @@
+## 0.3.0
+- MAJOR: Added WebGL rendering with PixiJS for massive performance boost!
+  - Toggle between Canvas 2D and WebGL with new button
+  - WebGL uses GPU acceleration for smooth 60fps rendering
+  - Sprites are cached as textures in GPU memory
+  - No more CPU spikes during hover or painting
+  - Supports thousands of tiles with no lag
+  - Proper batching and GPU optimization
+- WebGL renderer features:
+  - Full mouse interaction support (paint, erase, pan, zoom)
+  - Grid rendering optimized for GPU
+  - Layer support with proper opacity
+  - Hover highlight with minimal overhead
+  - Texture caching for tile bitmaps
+
 ## 0.2.9
 - More performance optimizations:
   - Grid now only draws visible cells (not 5000 cells every frame!)

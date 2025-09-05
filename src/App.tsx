@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
+const PixiApp = lazy(() => import('./PixiApp'));
 
 const tileW = 64;
 const tileH = 32;
@@ -23,6 +24,7 @@ export default function App() {
   const [tileSet, setTileSet] = useState<TileSetName>('grassland');
   const [colorIndex, setColorIndex] = useState(0);
   const [grid, setGrid] = useState(true);
+  const [useWebGL, setUseWebGL] = useState(true);
   const [layers, setLayers] = useState<Layer[]>([
     { id: `layer-${Date.now()}`, name: 'Layer 1', visible: true, locked: false, opacity: 1, cells: new Map(), props: {} }
   ]);
@@ -1365,17 +1367,49 @@ export default function App() {
         <button onClick={() => setActiveLayerCells(() => new Map())}>Clear Layer</button>
         <button onClick={exportJSON}>Export JSON</button>
         <button onClick={exportPNG}>Export PNG</button>
+        <button 
+          onClick={() => setUseWebGL(w => !w)} 
+          style={{ background: useWebGL ? '#27ae60' : '#e74c3c' }}
+        >
+          {useWebGL ? 'WebGL ON' : 'WebGL OFF'}
+        </button>
       </div>
-      <canvas
-        ref={canvasRef}
-        className="board-canvas"
-        style={{ cursor: tool === 'eraser' ? 'crosshair' : 'pointer' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
-      />
+      {useWebGL ? (
+        <Suspense fallback={<div>Loading WebGL...</div>}>
+          <PixiApp
+            layers={layers}
+            grid={grid}
+            tool={tool}
+            tileSet={tileSet}
+            selectedTileIndex={selectedTileIndex}
+            colorIndex={colorIndex}
+            paletteBySet={paletteBySet}
+            tilesBySet={tilesBySet}
+            activeLayerIndex={activeLayerIndex}
+            onCellsUpdate={(layerIndex, cells) => {
+              setLayers(prev => {
+                const next = [...prev];
+                next[layerIndex] = { ...next[layerIndex], cells };
+                return next;
+              });
+            }}
+            stamp={stamp}
+            autoTiling={autoTiling}
+            autoGroup={autoGroup}
+          />
+        </Suspense>
+      ) : (
+        <canvas
+          ref={canvasRef}
+          className="board-canvas"
+          style={{ cursor: tool === 'eraser' ? 'crosshair' : 'pointer' }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          onWheel={handleWheel}
+        />
+      )}
 
       {editorOpen && (
         <div className="modal-backdrop" onClick={closeEditor}>

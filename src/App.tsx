@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const tileW = 64;
 const tileH = 32;
@@ -30,6 +30,9 @@ export default function App() {
   const isPanningRef = useRef(false);
   const lastPanPosRef = useRef({ x: 0, y: 0 });
   const hoveredTileRef = useRef<{ i: number; j: number } | null>(null);
+  const needsRedrawRef = useRef(true);
+  const animationIdRef = useRef<number | null>(null);
+  const lastMouseMoveRef = useRef(0);
   const [projectId, setProjectId] = useState('');
   const [loadModalOpen, setLoadModalOpen] = useState(false);
   const [availableProjectIds, setAvailableProjectIds] = useState<string[]>([]);
@@ -83,7 +86,7 @@ export default function App() {
   const [tilesPerRow, setTilesPerRow] = useState<number>(25);
   const [tileSearch, setTileSearch] = useState<string>('');
   const [randomizeBrush, setRandomizeBrush] = useState<boolean>(false);
-  const [hoverIJ, setHoverIJ] = useState<{ i: number; j: number } | null>(null);
+  // Removed hoverIJ state to prevent re-renders on mouse move
   const [layersPanelOpen, setLayersPanelOpen] = useState(true);
   const [showStamps, setShowStamps] = useState(false);
   // Undo/Redo
@@ -252,92 +255,111 @@ export default function App() {
     }
   }, [sets, tileSet]);
 
-  useEffect(() => {
+  // Main draw function - only runs when needed
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-    let animationId: number;
+    const ctx = canvas.getContext('2d', { alpha: false })!;
+    
+    const width = canvas.width = canvas.clientWidth;
+    const height = canvas.height = canvas.clientHeight;
+    
+    // Fill background instead of clearing (faster)
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(0, 0, width, height);
 
-    function draw() {
-      const width = canvas.width = canvas.clientWidth;
-      const height = canvas.height = canvas.clientHeight;
-      ctx.clearRect(0,0,width,height);
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(scaleRef.current, scaleRef.current);
+    ctx.translate(offsetRef.current.x, offsetRef.current.y);
 
-      ctx.save();
-      ctx.translate(width / 2, height / 2);
-      ctx.scale(scaleRef.current, scaleRef.current);
-      ctx.translate(offsetRef.current.x, offsetRef.current.y);
-
-      if (grid) {
-        const range = 50;
-        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-        ctx.lineWidth = 1 / scaleRef.current;
-        for (let i = -range; i <= range; i++) {
-          for (let j = -range; j <= range; j++) {
-            const pos = isoToScreen(i,j);
-            ctx.beginPath();
-            ctx.moveTo(pos.x, pos.y - tileH/2);
-            ctx.lineTo(pos.x + tileW/2, pos.y);
-            ctx.lineTo(pos.x, pos.y + tileH/2);
-            ctx.lineTo(pos.x - tileW/2, pos.y);
-            ctx.closePath();
-            ctx.stroke();
-          }
+    if (grid) {
+      const range = 50;
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = 1 / scaleRef.current;
+      for (let i = -range; i <= range; i++) {
+        for (let j = -range; j <= range; j++) {
+          const pos = isoToScreen(i,j);
+          ctx.beginPath();
+          ctx.moveTo(pos.x, pos.y - tileH/2);
+          ctx.lineTo(pos.x + tileW/2, pos.y);
+          ctx.lineTo(pos.x, pos.y + tileH/2);
+          ctx.lineTo(pos.x - tileW/2, pos.y);
+          ctx.closePath();
+          ctx.stroke();
         }
       }
-
-      // Draw visible layers in order with opacity
-      layers.forEach(layer => {
-        if (!layer.visible) return;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
-        layer.cells.forEach((cell, key) => {
-          const [iStr, jStr] = key.split(',');
-          const i = parseInt(iStr, 10);
-          const j = parseInt(jStr, 10);
-          const pos = isoToScreen(i,j);
-          if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
-            drawTileBitmapAt(ctx, cell.tileSet, cell.tileIndex, pos.x, pos.y);
-          } else if (cell.color) {
-            ctx.fillStyle = cell.color;
-            ctx.beginPath();
-            ctx.moveTo(pos.x, pos.y - tileH/2);
-            ctx.lineTo(pos.x + tileW/2, pos.y);
-            ctx.lineTo(pos.x, pos.y + tileH/2);
-            ctx.lineTo(pos.x - tileW/2, pos.y);
-            ctx.closePath();
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-            ctx.lineWidth = 1 / scaleRef.current;
-            ctx.stroke();
-          }
-        });
-        ctx.restore();
-      });
-
-      // Hover highlight
-      if (hoveredTileRef.current) {
-        const { i, j } = hoveredTileRef.current;
-        const pos = isoToScreen(i, j);
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y - tileH/2);
-        ctx.lineTo(pos.x + tileW/2, pos.y);
-        ctx.lineTo(pos.x, pos.y + tileH/2);
-        ctx.lineTo(pos.x - tileW/2, pos.y);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 2 / scaleRef.current;
-        ctx.stroke();
-      }
-
-      ctx.restore();
-      animationId = requestAnimationFrame(draw);
     }
 
-    animationId = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(animationId);
+    // Draw visible layers in order with opacity
+    layers.forEach(layer => {
+      if (!layer.visible) return;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+      layer.cells.forEach((cell, key) => {
+        const [iStr, jStr] = key.split(',');
+        const i = parseInt(iStr, 10);
+        const j = parseInt(jStr, 10);
+        const pos = isoToScreen(i,j);
+        if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
+          drawTileBitmapAt(ctx, cell.tileSet, cell.tileIndex, pos.x, pos.y);
+        } else if (cell.color) {
+          ctx.fillStyle = cell.color;
+          ctx.beginPath();
+          ctx.moveTo(pos.x, pos.y - tileH/2);
+          ctx.lineTo(pos.x + tileW/2, pos.y);
+          ctx.lineTo(pos.x, pos.y + tileH/2);
+          ctx.lineTo(pos.x - tileW/2, pos.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+          ctx.lineWidth = 1 / scaleRef.current;
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
+    });
+
+    // Hover highlight
+    if (hoveredTileRef.current) {
+      const { i, j } = hoveredTileRef.current;
+      const pos = isoToScreen(i, j);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y - tileH/2);
+      ctx.lineTo(pos.x + tileW/2, pos.y);
+      ctx.lineTo(pos.x, pos.y + tileH/2);
+      ctx.lineTo(pos.x - tileW/2, pos.y);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2 / scaleRef.current;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    needsRedrawRef.current = false;
+  }, [layers, grid]);
+
+  // Animation loop - only runs when needsRedraw is true
+  useEffect(() => {
+    function animate() {
+      if (needsRedrawRef.current) {
+        draw();
+      }
+      animationIdRef.current = requestAnimationFrame(animate);
+    }
+    animationIdRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+      }
+    };
+  }, [draw]);
+
+  // Mark for redraw when layers or grid change
+  useEffect(() => {
+    needsRedrawRef.current = true;
   }, [layers, grid]);
 
   function isoToScreen(i: number, j: number) {
@@ -580,6 +602,12 @@ export default function App() {
     const cache = offscreenCacheRef.current;
     let canv = cache.get(key);
     if (!canv) {
+      // Limit cache size to prevent memory leaks
+      if (cache.size > 500) {
+        // Remove oldest entries (first 100)
+        const keysToDelete = Array.from(cache.keys()).slice(0, 100);
+        keysToDelete.forEach(k => cache.delete(k));
+      }
       canv = document.createElement('canvas');
       canv.width = tile.size;
       canv.height = tile.size;
@@ -707,6 +735,7 @@ export default function App() {
       lastPanPosRef.current = { x: e.clientX, y: e.clientY };
       offsetRef.current.x += dx / scaleRef.current;
       offsetRef.current.y += dy / scaleRef.current;
+      needsRedrawRef.current = true;
     } else if (e.buttons & 1) {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       if (tool === 'brush') paint(i,j);
@@ -716,10 +745,17 @@ export default function App() {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       erase(i,j);
     }
-    // Update hover preview for all mouse moves
-    const { i, j } = screenToIso(e.clientX, e.clientY);
-    hoveredTileRef.current = { i, j };
-    setHoverIJ({ i, j });
+    // Throttle hover updates to reduce CPU usage
+    const now = Date.now();
+    if (now - lastMouseMoveRef.current > 16) { // ~60fps max
+      const { i, j } = screenToIso(e.clientX, e.clientY);
+      const prev = hoveredTileRef.current;
+      if (!prev || prev.i !== i || prev.j !== j) {
+        hoveredTileRef.current = { i, j };
+        needsRedrawRef.current = true;
+      }
+      lastMouseMoveRef.current = now;
+    }
   }
 
   function handleMouseUp(e: React.MouseEvent) {
@@ -742,11 +778,12 @@ export default function App() {
     scaleRef.current = newScale;
     offsetRef.current.x = ( (px - canvas.clientWidth/2) / newScale ) - worldX;
     offsetRef.current.y = ( (py - canvas.clientHeight/2) / newScale ) - worldY;
+    needsRedrawRef.current = true;
   }
 
   function handleMouseLeave() {
     hoveredTileRef.current = null;
-    setHoverIJ(null);
+    needsRedrawRef.current = true;
   }
 
   function paint(i: number, j: number) {

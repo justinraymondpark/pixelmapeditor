@@ -1,3 +1,14 @@
+## 0.2.6
+- Major performance improvements to reduce CPU and memory usage:
+  - Changed from continuous animation loop to on-demand rendering
+  - Removed React state updates on mouse move (eliminated re-renders)
+  - Added throttling for hover updates (16ms minimum interval)
+  - Implemented cache size limit (500 tiles) to prevent memory leaks
+  - Canvas now uses opaque context for better performance
+  - Background fill instead of clearRect for faster redraws
+- Canvas only redraws when content actually changes
+- Mouse hover no longer triggers React re-renders
+
 ## 0.0.2
 - Add hover highlight for tile under cursor
 - Fix cursor-to-tile mapping using canvas bounding rect and rounding

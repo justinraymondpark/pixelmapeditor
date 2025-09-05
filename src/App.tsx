@@ -33,6 +33,8 @@ export default function App() {
   const needsRedrawRef = useRef(true);
   const animationIdRef = useRef<number | null>(null);
   const lastMouseMoveRef = useRef(0);
+  const pendingCellsRef = useRef<Map<string, BoardCell> | null>(null);
+  const isDraggingRef = useRef(false);
   const [projectId, setProjectId] = useState('');
   const [loadModalOpen, setLoadModalOpen] = useState(false);
   const [availableProjectIds, setAvailableProjectIds] = useState<string[]>([]);
@@ -292,11 +294,13 @@ export default function App() {
     }
 
     // Draw visible layers in order with opacity
-    layers.forEach(layer => {
+    layers.forEach((layer, layerIdx) => {
       if (!layer.visible) return;
       ctx.save();
       ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
-      layer.cells.forEach((cell, key) => {
+      // Use pending cells for active layer during drag, otherwise use state
+      const cells = (layerIdx === activeLayerIndex && pendingCellsRef.current) ? pendingCellsRef.current : layer.cells;
+      cells.forEach((cell, key) => {
         const [iStr, jStr] = key.split(',');
         const i = parseInt(iStr, 10);
         const j = parseInt(jStr, 10);
@@ -339,7 +343,7 @@ export default function App() {
 
     ctx.restore();
     needsRedrawRef.current = false;
-  }, [layers, grid]);
+  }, [layers, grid, activeLayerIndex]);
 
   // Animation loop - only runs when needsRedraw is true
   useEffect(() => {
@@ -361,6 +365,13 @@ export default function App() {
   useEffect(() => {
     needsRedrawRef.current = true;
   }, [layers, grid]);
+
+  // Get current layer cells (from pending or state)
+  function getCurrentLayerCells(): Map<string, BoardCell> {
+    if (pendingCellsRef.current) return pendingCellsRef.current;
+    const layer = layers[activeLayerIndex];
+    return layer ? layer.cells : new Map();
+  }
 
   function isoToScreen(i: number, j: number) {
     const x = (i - j) * (tileW / 2);
@@ -716,6 +727,12 @@ export default function App() {
     } else {
       const { i, j } = screenToIso(e.clientX, e.clientY);
       if (e.altKey) { sampleAt(i, j); return; }
+      // Start dragging and initialize pending cells
+      isDraggingRef.current = true;
+      const layer = layers[activeLayerIndex];
+      if (layer && !layer.locked) {
+        pendingCellsRef.current = new Map(layer.cells);
+      }
       // start history batch on primary/secondary operations
       if (!historyRef.current.batching) { pushHistory(); historyRef.current.batching = true; }
       if (button === 2) {
@@ -762,6 +779,20 @@ export default function App() {
     if (e.button === 1) {
       isPanningRef.current = false;
     }
+    // Commit pending changes to state
+    if (isDraggingRef.current && pendingCellsRef.current) {
+      const finalCells = pendingCellsRef.current;
+      setLayers(prev => {
+        const idx = Math.max(0, Math.min(prev.length - 1, activeLayerIndex));
+        const layer = prev[idx];
+        if (!layer || layer.locked) return prev;
+        const next = [...prev];
+        next[idx] = { ...layer, cells: finalCells };
+        return next;
+      });
+      pendingCellsRef.current = null;
+    }
+    isDraggingRef.current = false;
     historyRef.current.batching = false;
   }
 
@@ -788,8 +819,9 @@ export default function App() {
 
   function paint(i: number, j: number) {
     const key = `${i},${j}`;
-    setActiveLayerCells(prev => {
-      const next = new Map(prev);
+    // Use pending cells during drag, otherwise update state
+    if (isDraggingRef.current && pendingCellsRef.current) {
+      const next = pendingCellsRef.current;
       if (stamp && tool === 'brush') {
         // multi-tile stamp placement
         let idx = 0;
@@ -836,18 +868,78 @@ export default function App() {
         const color = pal[colorIndex % pal.length];
         next.set(key, { color });
       }
-      return next;
-    });
+      needsRedrawRef.current = true;
+    } else {
+      // Single click - update state immediately
+      setActiveLayerCells(prev => {
+        const next = new Map(prev);
+        if (stamp && tool === 'brush') {
+          // multi-tile stamp placement
+          let idx = 0;
+          for (let dy = 0; dy < stamp.h; dy++) {
+            for (let dx = 0; dx < stamp.w; dx++, idx++) {
+              const tIdx = stamp.tiles[idx];
+              const kk = `${i+dy},${j+dx}`;
+              next.set(kk, { tileSet: stamp.set, tileIndex: tIdx });
+            }
+          }
+        } else if (autoTiling && autoGroup) {
+          // if current cell is already part of a different group, clear it first to avoid mixed masks
+          const existing = next.get(key);
+          if (existing && existing.tileSet === tileSet && existing.tileIndex !== undefined) {
+            const inThisGroup = isGroupCell(existing, autoGroup, tileSet) || isRuleMember(tileSet, autoGroup, existing.tileIndex);
+            if (!inThisGroup) next.delete(key);
+          }
+          // place autotile and update neighbors
+          applyAutotileAt(next, i, j, tileSet, autoGroup);
+          const neighbors = [ [i-1,j], [i,j+1], [i+1,j], [i,j-1] ] as Array<[number,number]>;
+          neighbors.forEach(([ni, nj]) => updateAutotileForCell(next, ni, nj));
+        } else if (selectedTileIndex !== null) {
+          if (randomizeBrush) {
+            // pick among visible filtered tiles from current tileset
+            const needle = tileSearch.trim().toLowerCase();
+            const candidates: number[] = [];
+            (tilesBySet[tileSet] || []).forEach((t, idx) => {
+              if (t.spacer) return;
+              if (tilesSidebarGroupFilter && t.autoGroup !== tilesSidebarGroupFilter) return;
+              if (needle) {
+                const n = (t.name || '').toLowerCase();
+                const tags = (t.tags || []).join(' ').toLowerCase();
+                if (n.indexOf(needle) === -1 && tags.indexOf(needle) === -1) return;
+              }
+              candidates.push(idx);
+            });
+            const pick = candidates.length ? candidates[Math.floor(Math.random()*candidates.length)] : selectedTileIndex;
+            next.set(key, { tileSet, tileIndex: pick });
+          } else {
+            next.set(key, { tileSet, tileIndex: selectedTileIndex });
+          }
+        } else {
+          const pal = paletteBySet[tileSet] || builtinPalettes.grassland;
+          const color = pal[colorIndex % pal.length];
+          next.set(key, { color });
+        }
+        return next;
+      });
+    }
   }
 
   function erase(i: number, j: number) {
     const key = `${i},${j}`;
-    setActiveLayerCells(prev => {
-      if (!prev.has(key)) return prev;
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
+    // Use pending cells during drag, otherwise update state
+    if (isDraggingRef.current && pendingCellsRef.current) {
+      if (pendingCellsRef.current.has(key)) {
+        pendingCellsRef.current.delete(key);
+        needsRedrawRef.current = true;
+      }
+    } else {
+      setActiveLayerCells(prev => {
+        if (!prev.has(key)) return prev;
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+    }
   }
 
   function fillAt(i: number, j: number) {

@@ -1,3 +1,11 @@
+## 0.2.7
+- Critical performance fix for painting/drawing operations:
+  - Batched cell updates during mouse drag (no more state updates per pixel)
+  - Pending changes are held in memory and only committed on mouse up
+  - Canvas redraws from pending state without React re-renders
+  - Eliminated 200% CPU usage spike during drawing
+  - Drawing is now smooth and responsive even with complex brushes
+
 ## 0.2.6
 - Major performance improvements to reduce CPU and memory usage:
   - Changed from continuous animation loop to on-demand rendering

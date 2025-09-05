@@ -1,3 +1,6 @@
+## 0.2.10
+- Rollback to stable Canvas renderer (pre-WebGL) due to regressions in tiles panel, selection, and painting. Investigating Firefox perf separately.
+
 ## 0.2.9
 - More performance optimizations:
   - Grid now only draws visible cells (not 5000 cells every frame!)

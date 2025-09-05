@@ -51,13 +51,11 @@ export default function PixiApp({
   const viewportRef = useRef<PIXI.Container | null>(null);
   const gridContainerRef = useRef<PIXI.Container | null>(null);
   const layerContainersRef = useRef<PIXI.Container[]>([]);
-  const layerSpriteMapsRef = useRef<Map<string, PIXI.DisplayObject>[]>([]);
   const hoverSpriteRef = useRef<PIXI.Graphics | null>(null);
   const tileCacheRef = useRef<Map<string, PIXI.Texture>>(new Map());
   const isDraggingRef = useRef(false);
   const pendingCellsRef = useRef<Map<string, BoardCell> | null>(null);
   const [hoveredTile, setHoveredTile] = useState<{ i: number; j: number } | null>(null);
-  const lastDragKeyRef = useRef<string | null>(null);
 
   // Convert isometric coordinates
   const isoToScreen = (i: number, j: number) => {
@@ -177,7 +175,6 @@ export default function PixiApp({
         lastPanPos = { x: e.global.x, y: e.global.y };
       } else if (e.button === 0) { // Left click - paint
         isDraggingRef.current = true;
-        lastDragKeyRef.current = null;
         const layer = layers[activeLayerIndex];
         if (layer && !layer.locked) {
           pendingCellsRef.current = new Map(layer.cells);
@@ -185,7 +182,6 @@ export default function PixiApp({
         }
       } else if (e.button === 2) { // Right click - erase
         isDraggingRef.current = true;
-        lastDragKeyRef.current = null;
         const layer = layers[activeLayerIndex];
         if (layer && !layer.locked) {
           pendingCellsRef.current = new Map(layer.cells);
@@ -205,14 +201,10 @@ export default function PixiApp({
         viewport.y += dy;
         lastPanPos = { x: e.global.x, y: e.global.y };
       } else if (isDraggingRef.current && pendingCellsRef.current) {
-        const key = `${i},${j}`;
-        if (lastDragKeyRef.current !== key) {
-          lastDragKeyRef.current = key;
-          if (e.buttons & 1) {
-            paintAt(i, j);
-          } else if (e.buttons & 2) {
-            eraseAt(i, j);
-          }
+        if (e.buttons & 1) {
+          paintAt(i, j);
+        } else if (e.buttons & 2) {
+          eraseAt(i, j);
         }
       }
       
@@ -228,7 +220,6 @@ export default function PixiApp({
         pendingCellsRef.current = null;
       }
       isDraggingRef.current = false;
-      lastDragKeyRef.current = null;
     };
 
     const handleWheel = (e: WheelEvent) => {
@@ -250,15 +241,15 @@ export default function PixiApp({
         pendingCellsRef.current.set(key, { color });
       }
       
-      // Apply only this cell to the scene
-      upsertCellDisplay(activeLayerIndex, i, j, pendingCellsRef.current.get(key)!);
+      // Trigger re-render
+      updateLayerSprites();
     };
 
     const eraseAt = (i: number, j: number) => {
       if (!pendingCellsRef.current) return;
       const key = `${i},${j}`;
       pendingCellsRef.current.delete(key);
-      removeCellDisplay(activeLayerIndex, i, j);
+      updateLayerSprites();
     };
 
     app.stage.on('pointerdown', handlePointerDown);
@@ -287,125 +278,66 @@ export default function PixiApp({
     };
   }, []); // Only run once on mount
 
-  // Ensure containers & sprite maps exist and reflect layer props
-  const ensureLayerContainers = useCallback(() => {
+  // Update layer sprites when cells change
+  const updateLayerSprites = useCallback(() => {
     if (!viewportRef.current) return;
-    // Grow arrays as needed
-    for (let idx = 0; idx < layers.length; idx++) {
-      if (!layerContainersRef.current[idx]) {
-        const container = new PIXI.Container();
-        viewportRef.current.addChild(container);
-        layerContainersRef.current[idx] = container;
-      }
-      if (!layerSpriteMapsRef.current[idx]) {
-        layerSpriteMapsRef.current[idx] = new Map();
-      }
-      // Apply layer props
-      const layer = layers[idx];
-      const container = layerContainersRef.current[idx];
+    
+    // Clear existing layer containers
+    layerContainersRef.current.forEach(container => {
+      container.destroy({ children: true });
+    });
+    layerContainersRef.current = [];
+    
+    // Create sprites for each layer
+    layers.forEach((layer, layerIdx) => {
+      if (!layer.visible) return;
+      
+      const container = new PIXI.Container();
       container.alpha = layer.opacity;
-      container.visible = layer.visible;
-      // Ensure order: grid (0), then layers in order
-      if (viewportRef.current.getChildIndex(container) !== 1 + idx) {
-        viewportRef.current.addChildAt(container, 1 + idx);
-      }
-    }
-    // Remove extra containers/maps if layers shrank
-    for (let idx = layers.length; idx < layerContainersRef.current.length; idx++) {
-      const c = layerContainersRef.current[idx];
-      c.destroy({ children: true });
-    }
-    layerContainersRef.current.length = layers.length;
-    layerSpriteMapsRef.current.length = layers.length;
-  }, [layers]);
-
-  // Create display object for a cell
-  const createDisplayForCell = (i: number, j: number, cell: BoardCell): PIXI.DisplayObject | null => {
-    const pos = isoToScreen(i, j);
-    if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
-      const texture = getTextureForTile(cell.tileSet, cell.tileIndex);
-      if (!texture) return null;
-      const sprite = new PIXI.Sprite(texture);
-      sprite.anchor.set(0.5, 0.5);
-      sprite.x = pos.x;
-      sprite.y = pos.y;
-      const scaleX = tileW / texture.width;
-      const scaleY = tileH / texture.height;
-      sprite.scale.set(scaleX, scaleY);
-      return sprite;
-    }
-    if (cell.color) {
-      const graphics = new PIXI.Graphics();
-      const color = parseInt(cell.color.replace('#', '0x'));
-      graphics.beginFill(color);
-      graphics.moveTo(pos.x, pos.y - tileH/2);
-      graphics.lineTo(pos.x + tileW/2, pos.y);
-      graphics.lineTo(pos.x, pos.y + tileH/2);
-      graphics.lineTo(pos.x - tileW/2, pos.y);
-      graphics.closePath();
-      graphics.endFill();
-      return graphics;
-    }
-    return null;
-  };
-
-  // Upsert a single cell's display object
-  const upsertCellDisplay = (layerIdx: number, i: number, j: number, cell: BoardCell) => {
-    ensureLayerContainers();
-    const key = `${i},${j}`;
-    const map = layerSpriteMapsRef.current[layerIdx];
-    const container = layerContainersRef.current[layerIdx];
-    // Remove old if exists
-    const old = map.get(key);
-    if (old) {
-      old.destroy();
-      container.removeChild(old);
-      map.delete(key);
-    }
-    const display = createDisplayForCell(i, j, cell);
-    if (display) {
-      container.addChild(display);
-      map.set(key, display);
-    }
-  };
-
-  // Remove a single cell's display object
-  const removeCellDisplay = (layerIdx: number, i: number, j: number) => {
-    ensureLayerContainers();
-    const key = `${i},${j}`;
-    const map = layerSpriteMapsRef.current[layerIdx];
-    const container = layerContainersRef.current[layerIdx];
-    const old = map.get(key);
-    if (old) {
-      old.destroy();
-      container.removeChild(old);
-      map.delete(key);
-    }
-  };
-
-  // Full rebuild only when layers array changes (not on every paint)
-  const rebuildAllLayersFromState = useCallback(() => {
-    ensureLayerContainers();
-    for (let idx = 0; idx < layers.length; idx++) {
-      const container = layerContainersRef.current[idx];
-      const map = layerSpriteMapsRef.current[idx];
-      // Clear existing
-      container.removeChildren();
-      map.forEach(d => d.destroy());
-      map.clear();
-      const cells = layers[idx].cells;
+      
+      // Use pending cells for active layer during drag
+      const cells = (layerIdx === activeLayerIndex && pendingCellsRef.current) 
+        ? pendingCellsRef.current 
+        : layer.cells;
+      
       cells.forEach((cell, key) => {
         const [iStr, jStr] = key.split(',');
         const i = parseInt(iStr, 10);
         const j = parseInt(jStr, 10);
-        const display = createDisplayForCell(i, j, cell);
-        if (display) {
-          container.addChild(display);
-          map.set(key, display);
+        const pos = isoToScreen(i, j);
+        
+        if (cell.tileSet !== undefined && cell.tileIndex !== undefined) {
+          const texture = getTextureForTile(cell.tileSet, cell.tileIndex);
+          if (texture) {
+            const sprite = new PIXI.Sprite(texture);
+            sprite.anchor.set(0.5, 0.5);
+            sprite.x = pos.x;
+            sprite.y = pos.y;
+            
+            // Scale to fit isometric tile
+            const scaleX = tileW / texture.width;
+            const scaleY = tileH / texture.height;
+            sprite.scale.set(scaleX, scaleY);
+            
+            container.addChild(sprite);
+          }
+        } else if (cell.color) {
+          const graphics = new PIXI.Graphics();
+          graphics.beginFill(parseInt(cell.color.replace('#', '0x')));
+          graphics.moveTo(pos.x, pos.y - tileH/2);
+          graphics.lineTo(pos.x + tileW/2, pos.y);
+          graphics.lineTo(pos.x, pos.y + tileH/2);
+          graphics.lineTo(pos.x - tileW/2, pos.y);
+          graphics.closePath();
+          graphics.endFill();
+          container.addChild(graphics);
         }
       });
-    }
-  }, [layers, ensureLayerContainers]);
+      
+      viewportRef.current?.addChildAt(container, 1 + layerIdx); // After grid
+      layerContainersRef.current.push(container);
+    });
+  }, [layers, activeLayerIndex, pendingCellsRef.current]);
 
   // Update grid
   useEffect(() => {
@@ -452,10 +384,10 @@ export default function PixiApp({
     hoverSpriteRef.current.endFill();
   }, [hoveredTile]);
 
-  // Rebuild all layers whenever layers array changes (structure changes)
+  // Update layers when they change
   useEffect(() => {
-    rebuildAllLayersFromState();
-  }, [layers, rebuildAllLayersFromState]);
+    updateLayerSprites();
+  }, [layers, updateLayerSprites]);
 
   return <div ref={mountRef} style={{ width: '100%', height: 'calc(100vh - 100px)' }} />;
 }
